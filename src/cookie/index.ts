@@ -106,9 +106,17 @@ function parseSetCookie(header: string, url: string): StoredCookie | undefined {
     const key = rawKey?.toLowerCase() ?? ""
     const v = rest.join("=").trim()
     switch (key) {
-      case "domain":
-        cookie.domain = v.startsWith(".") ? v.slice(1) : v
+      case "domain": {
+        const requested = v.startsWith(".") ? v.slice(1) : v
+        // RFC 6265 §5.3 step 6: reject Domain attributes that don't
+        // domain-match the request URL's host. Otherwise a malicious server
+        // could set a cookie for an unrelated domain.
+        if (!domainMatches(u.hostname, requested)) {
+          return undefined
+        }
+        cookie.domain = requested
         break
+      }
       case "path":
         cookie.path = v || "/"
         break

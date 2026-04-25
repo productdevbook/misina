@@ -23,7 +23,7 @@ export function catchable<T>(promise: Promise<T>): CatchablePromise<T> {
   ): CatchablePromise<T | U> {
     return catchable(
       this.catch(async (error: unknown) => {
-        if (matches(matcher, error)) return await handler(error as Error)
+        if (matchesMatcher(matcher, error)) return await handler(error as Error)
         throw error
       }),
     )
@@ -31,7 +31,7 @@ export function catchable<T>(promise: Promise<T>): CatchablePromise<T> {
   return wrapped
 }
 
-function matches(matcher: CatchMatcher, error: unknown): boolean {
+export function matchesMatcher(matcher: CatchMatcher, error: unknown): boolean {
   if (typeof matcher === "function") return matcher(error)
   if (typeof matcher === "string") {
     return error instanceof Error && error.name === matcher
