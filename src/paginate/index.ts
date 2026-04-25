@@ -36,6 +36,10 @@ export interface PaginateOptions<T, R = unknown> {
  * ```ts
  * for await (const user of paginate(misina, "/users")) { ... }
  * ```
+ *
+ * Built-in cycle detection: if the same URL is visited twice without a
+ * change in `init`, the iterator stops (prevents infinite loops on a
+ * misconfigured `next` callback).
  */
 export async function* paginate<T = unknown, R = unknown>(
   misina: Misina,
@@ -50,9 +54,16 @@ export async function* paginate<T = unknown, R = unknown>(
   let attemptInit = init
   let attempt = 0
   let yielded = 0
+  const seen = new Set<string>()
 
   while (url != null) {
     if (options.requestLimit != null && attempt >= options.requestLimit) return
+
+    // Cycle guard: if the next callback returns the same URL with the
+    // same init, abort instead of looping forever.
+    const fingerprint = `${url}|${JSON.stringify(attemptInit ?? null)}`
+    if (seen.has(fingerprint)) return
+    seen.add(fingerprint)
 
     const response = await misina.request<R>(url, attemptInit)
     attempt++

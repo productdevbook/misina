@@ -50,16 +50,20 @@ export interface RefreshOn401Options {
 
 /**
  * Refresh the auth token on a 401 response and retry the request once. All
- * concurrent 401s share a single in-flight refresh (mutex).
+ * concurrent 401s share a single in-flight refresh (mutex). A retried
+ * request that itself returns 401 is NOT refreshed again — it surfaces to
+ * the caller so they can prompt for re-login.
  */
 export function withRefreshOn401(misina: Misina, opts: RefreshOn401Options): Misina {
   let inflight: Promise<string> | undefined
   const shouldRefresh = opts.shouldRefresh ?? ((ctx) => ctx.response?.status === 401)
+  // Tracks responses that came from a refresh-retry path. afterResponse
+  // checks this set to break the recursion (refreshed token also rejected).
+  const retriedResponses = new WeakSet<Response>()
 
   async function getNewToken(): Promise<string> {
     if (!inflight) {
       inflight = Promise.resolve(opts.refresh()).finally(() => {
-        // Hold for one tick so concurrent waiters share, then release.
         queueMicrotask(() => {
           inflight = undefined
         })
@@ -71,29 +75,38 @@ export function withRefreshOn401(misina: Misina, opts: RefreshOn401Options): Mis
   return misina.extend({
     hooks: {
       afterResponse: async (ctx) => {
+        if (!ctx.response) return
+        if (retriedResponses.has(ctx.response)) return
         if (!shouldRefresh(ctx)) return
+
         const newToken = await getNewToken()
+        const headers = { ...ctx.options.headers }
+        headers["authorization"] = `Bearer ${newToken}`
 
-        const headers = new Headers(ctx.request.headers)
-        headers.set("authorization", `Bearer ${newToken}`)
-        const retried = new Request(ctx.request, { headers })
-
-        // Re-issue via the underlying driver — the misina lifecycle was
-        // already in progress, so we use a sub-request.
-        return await fetchOnce(misina, retried)
+        const fresh = await fetchOnce(misina, ctx.request, headers)
+        retriedResponses.add(fresh)
+        return fresh
       },
     },
   })
 }
 
-async function fetchOnce(misina: Misina, request: Request): Promise<Response> {
+async function fetchOnce(
+  misina: Misina,
+  request: Request,
+  headers: Record<string, string>,
+): Promise<Response> {
+  // responseType: 'stream' tells misina not to parse the body, so res.raw
+  // is handed back fully readable to the outer afterResponse hook (which
+  // returns it to be re-parsed once by finalizeResponse).
   const res = await misina.request(request.url, {
     method: request.method as "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS",
-    headers: Object.fromEntries(request.headers),
+    headers,
     body: request.body ?? undefined,
     signal: request.signal,
     throwHttpErrors: false,
     retry: 0,
+    responseType: "stream",
   })
   return res.raw
 }
