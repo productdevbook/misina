@@ -6,6 +6,49 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Hardening — post-v0.1 audit (still in [Unreleased])
+
+Nine consecutive audit passes against WHATWG Fetch / AbortSignal / HTML
+EventStream, RFC 9110 / 9111 / 8288 / 6265, and the latest merged PRs in
+ofetch, ky, and axios. Every pass added regression tests; total test
+count climbed from 18 → 142 across 22 files.
+
+Fixed bugs (selected highlights — see commit history for the full list):
+
+- **Retry-After parsing**: empty / malformed token no longer produces a
+  zero-second instant retry.
+- **TimeoutError.timeout**: now reflects the configured timeout, not 0.
+- **HTTPError.data on retry**: parsed body is now available on
+  \`ctx.error.data\` inside \`shouldRetry\`.
+- **Body re-use across retries**: the runtime now snapshots the original
+  Request and clones it per attempt — so even \`ReadableStream\` bodies
+  retry without an explicit \`beforeRetry\` reassignment.
+- **303 / 301 / 302 demote**: drops \`content-type\` and \`content-length\`
+  headers when downgrading to GET.
+- **Smuggling guard for defer**: defer-supplied headers go through the
+  CR/LF/NUL validator.
+- **case-insensitive \`.extend()\` headers merge**: \`Authorization\` vs
+  \`authorization\` no longer produce duplicate keys.
+- **withRefreshOn401 recursion**: refreshed-then-401 no longer loops
+  forever; marker tracked in-process via \`WeakSet<Response>\`.
+- **paginate cycle detection**: a self-pointing \`next\` no longer hangs.
+- **Link header parser**: handles URLs with commas, multi-link headers,
+  space-separated rel values (RFC 8288 §3).
+- **cache RFC 9111**: honors \`Cache-Control: no-store\` and \`max-age\`,
+  and stores \`Vary\` variants under per-variant keys (Accept-Language en
+  vs tr no longer clobber each other).
+- **cookie RFC 6265 §5.3**: rejects \`Set-Cookie\` with a \`Domain\`
+  attribute that doesn't domain-match the request URL's host.
+- **SSE WHATWG HTML §9.2**: BOM stripping, empty event reset to
+  'message', NUL in id ignored, retry digit-only.
+- **withDedupe**: now actually deduplicates POST/PUT/PATCH/DELETE when
+  opted in via the \`methods\` option (the spread was reusing the
+  underlying instance's mutating methods).
+- **stream body retry**: \`Request.clone()\` tees the underlying body, so
+  streamed retries work automatically without explicit reassignment.
+- **createMisinaTyped init optional**: endpoints with no required
+  fields no longer demand a second \`{}\` argument.
+
 ### Added — v0.1.0
 
 Initial release. Driver-based, zero-dependency, fetch-first TypeScript
