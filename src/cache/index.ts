@@ -72,15 +72,19 @@ export function withCache(misina: Misina, opts: CacheOptions = {}): Misina {
     hooks: {
       beforeRequest: async (ctx) => {
         if (!methods.includes(ctx.options.method)) return
-        const key = keyOf(ctx)
-        const entry = await store.get(key)
+        const baseKey = keyOf(ctx)
+        // Try the base key first; if that entry has Vary, build a per-variant
+        // key from the request headers and look that up too.
+        const baseEntry = await store.get(baseKey)
+        const variantKey = baseEntry?.vary
+          ? variantKeyFor(baseKey, baseEntry.vary, ctx.request.headers)
+          : undefined
+        const entry = variantKey ? await store.get(variantKey) : baseEntry
         if (!entry) return
 
-        // Vary check: stored vary headers must match the current request.
         if (entry.vary && !varyMatches(entry.vary, ctx.request.headers)) return
 
         if (entry.expires > Date.now()) {
-          // Fresh — short-circuit fetch
           return entry.response.clone()
         }
 
@@ -94,12 +98,12 @@ export function withCache(misina: Misina, opts: CacheOptions = {}): Misina {
       afterResponse: async (ctx) => {
         if (!ctx.response) return
         if (!methods.includes(ctx.options.method)) return
-        const key = keyOf(ctx)
+        const baseKey = keyOf(ctx)
 
         if (ctx.response.status === 304) {
-          const entry = await store.get(key)
+          const entry = await store.get(baseKey)
           if (entry) {
-            await store.set(key, { ...entry, expires: Date.now() + ttl })
+            await store.set(baseKey, { ...entry, expires: Date.now() + ttl })
             return entry.response.clone()
           }
         }
@@ -120,16 +124,38 @@ export function withCache(misina: Misina, opts: CacheOptions = {}): Misina {
         const cloned = ctx.response.clone()
         const vary = recordVaryHeaders(ctx.response, ctx.request)
 
-        await store.set(key, {
+        const entry: CacheEntry = {
           response: cloned,
           expires: Date.now() + entryTtl,
           etag: ctx.response.headers.get("etag") ?? undefined,
           lastModified: ctx.response.headers.get("last-modified") ?? undefined,
           vary,
-        })
+        }
+
+        if (vary && !("*" in vary)) {
+          // Store the per-variant entry under a derived key, but also keep the
+          // base entry's `vary` field so subsequent requests know to look up
+          // a variant.
+          const variantKey = variantKeyFor(baseKey, vary, ctx.request.headers)
+          await store.set(variantKey, entry)
+          await store.set(baseKey, { ...entry, response: ctx.response.clone() })
+        } else {
+          await store.set(baseKey, entry)
+        }
       },
     },
   })
+}
+
+function variantKeyFor(
+  baseKey: string,
+  vary: Record<string, string | null>,
+  headers: Headers,
+): string {
+  const parts = Object.keys(vary)
+    .sort()
+    .map((name) => `${name}=${headers.get(name) ?? ""}`)
+  return `${baseKey} | ${parts.join(" & ")}`
 }
 
 function parseMaxAge(cacheControl: string): number | null {

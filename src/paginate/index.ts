@@ -118,15 +118,76 @@ function defaultNext<R>(
   return { url: next }
 }
 
+/**
+ * Parse a `Link` header (RFC 8288 §3) into a `{ rel: url }` map. Splitting on
+ * raw commas is wrong because URLs can contain commas (e.g.
+ * `/items?ids=1,2,3`). We instead walk the header, treating `<...>` as the
+ * URL and consuming params up to the next top-level comma.
+ */
 function parseLinkHeader(value: string): Record<string, string> {
   const out: Record<string, string> = {}
-  for (const part of value.split(",")) {
-    const match = /<([^>]+)>;\s*rel="?([^",]+)"?/.exec(part.trim())
-    if (match) {
-      const url = match[1]
-      const rel = match[2]
-      if (url && rel) out[rel] = url
+  let i = 0
+  while (i < value.length) {
+    // Skip whitespace and leading commas
+    while (i < value.length && (value[i] === "," || value[i] === " " || value[i] === "\t")) i++
+    if (i >= value.length) break
+    if (value[i] !== "<") break // malformed
+    const close = value.indexOf(">", i + 1)
+    if (close === -1) break
+    const url = value.slice(i + 1, close)
+    i = close + 1
+
+    // Walk parameters until the next top-level comma.
+    let rel: string | undefined
+    while (i < value.length && value[i] !== ",") {
+      // Skip ; and whitespace
+      while (i < value.length && (value[i] === ";" || value[i] === " " || value[i] === "\t")) i++
+      if (i >= value.length || value[i] === ",") break
+      // Read param name
+      const eq = value.indexOf("=", i)
+      const semi = value.indexOf(";", i)
+      const comma = value.indexOf(",", i)
+      const end = nextStop(eq, semi, comma, value.length)
+      const name = value.slice(i, end).trim().toLowerCase()
+      i = end
+      if (value[i] === "=") {
+        i++
+        let pval: string
+        if (value[i] === '"') {
+          const q = value.indexOf('"', i + 1)
+          if (q === -1) {
+            pval = value.slice(i + 1)
+            i = value.length
+          } else {
+            pval = value.slice(i + 1, q)
+            i = q + 1
+          }
+        } else {
+          const stopSemi = value.indexOf(";", i)
+          const stopComma = value.indexOf(",", i)
+          const stop = nextStop(stopSemi, stopComma, -1, value.length)
+          pval = value.slice(i, stop).trim()
+          i = stop
+        }
+        if (name === "rel" && !rel) rel = pval
+      }
+    }
+
+    if (rel) {
+      // A rel can be a space-separated list — store each so callers can ask
+      // for any one of them.
+      for (const r of rel.split(/\s+/)) {
+        if (r && !(r in out)) out[r] = url
+      }
     }
   }
   return out
+}
+
+function nextStop(...candidates: number[]): number {
+  let best = Infinity
+  for (const c of candidates) {
+    if (c >= 0 && c < best) best = c
+  }
+  return best === Infinity ? (candidates[candidates.length - 1] ?? 0) : best
 }
