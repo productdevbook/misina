@@ -74,7 +74,7 @@ npm install misina
 bun add misina
 ```
 
-Requires Node ≥ 20.11. `AbortSignal.any` floor: Node 20.5+, Bun, Deno, modern browsers.
+Requires Node ≥ 22.11 / Bun ≥ 1.2 / Deno ≥ 2.0 / Baseline 2024 browsers (Safari 17.4+, Chrome 116+, Firefox 124+). Uses native `AbortSignal.any`, `AbortSignal.timeout`, and `Headers.getSetCookie()` — no polyfills.
 
 ## Quick Start
 
@@ -423,8 +423,9 @@ await api.get("/download/big.bin", {
 ```
 
 Upload progress streams the body in 64 KB chunks via `duplex: 'half'` on
-runtimes that support it (Node 20+, Bun, Deno, Chrome 105+). On unsupported
-runtimes the callback is silently skipped.
+runtimes that support it (Node 22+, Bun, Deno, Chrome 105+). Safari and
+Firefox don't support streaming request bodies yet — on those, the
+callback is silently skipped and the body is sent in one go.
 
 ## defer — Late-Binding Config
 

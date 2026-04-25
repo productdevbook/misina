@@ -1,47 +1,23 @@
 /**
  * Compose multiple AbortSignals into one. Aborts when any source aborts.
  *
- * Uses native `AbortSignal.any` (Node 20.5+, Bun, Deno, modern browsers)
- * with a small fallback for environments that haven't shipped it yet.
+ * Uses native `AbortSignal.any` — Node ≥ 22, Bun ≥ 1.2, Deno ≥ 2.0,
+ * Baseline 2024 browsers (Safari 17.4, Chrome 116, Firefox 124).
  */
 export function composeSignals(signals: (AbortSignal | undefined)[]): AbortSignal | undefined {
   const real = signals.filter((s): s is AbortSignal => Boolean(s))
   if (real.length === 0) return undefined
   if (real.length === 1) return real[0]
-
-  const anyImpl = (AbortSignal as unknown as { any?: (sigs: AbortSignal[]) => AbortSignal }).any
-  if (typeof anyImpl === "function") return anyImpl(real)
-
-  const controller = new AbortController()
-  for (const signal of real) {
-    if (signal.aborted) {
-      controller.abort(signal.reason)
-      return controller.signal
-    }
-    signal.addEventListener(
-      "abort",
-      () => {
-        controller.abort(signal.reason)
-      },
-      { once: true },
-    )
-  }
-  return controller.signal
+  return AbortSignal.any(real)
 }
 
 /**
- * Build a timeout signal using `AbortSignal.timeout` when available, with
- * a fallback for older runtimes. Reason is a `TimeoutError`-style DOMException.
+ * Build a timeout signal using native `AbortSignal.timeout`. Reason is a
+ * `TimeoutError`-style DOMException — used by `isOurTimeoutAbort` to tell
+ * "our timer fired" from "user aborted".
  */
 export function timeoutSignal(ms: number): AbortSignal {
-  const timeoutImpl = (AbortSignal as unknown as { timeout?: (ms: number) => AbortSignal }).timeout
-  if (typeof timeoutImpl === "function") return timeoutImpl(ms)
-
-  const controller = new AbortController()
-  setTimeout(() => {
-    controller.abort(new DOMException(`Timeout of ${ms}ms exceeded`, "TimeoutError"))
-  }, ms)
-  return controller.signal
+  return AbortSignal.timeout(ms)
 }
 
 /**

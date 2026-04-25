@@ -72,20 +72,15 @@ export function withCookieJar(misina: Misina, jar: CookieJar): Misina {
       },
       afterResponse: async (ctx) => {
         if (!ctx.response) return
-        // getSetCookie is the spec way; fall back to multi-header poll.
-        const headers = ctx.response.headers as Headers & { getSetCookie?: () => string[] }
-        const setCookies = headers.getSetCookie?.() ?? collectSetCookies(headers)
+        // `Headers.getSetCookie()` — spec since 2023; available in
+        // Node ≥ 19.7, Bun, Deno, Baseline 2024 browsers.
+        const setCookies = ctx.response.headers.getSetCookie()
         for (const sc of setCookies) {
           await jar.setCookie(sc, ctx.request.url)
         }
       },
     },
   })
-}
-
-function collectSetCookies(headers: Headers): string[] {
-  const value = headers.get("set-cookie")
-  return value ? [value] : []
 }
 
 function parseSetCookie(header: string, url: string): StoredCookie | undefined {

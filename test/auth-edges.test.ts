@@ -62,6 +62,21 @@ describe("withBasic — encoding edges", () => {
     expect(seen[0]?.auth).toBe("Basic YWxpY2U6c2VjcmV0")
   })
 
+  it("non-ASCII (Turkish chars) credentials encode as UTF-8, not Latin1", async () => {
+    const { seen, driver } = recordingDriver()
+    // "şifre" — has a non-Latin1 char, would crash naive btoa.
+    const m = withBasic(createMisina({ driver, retry: 0 }), "kullanıcı", "şifre")
+    await m.get("https://api.test/")
+    // Decode back via atob → bytes → utf8 string.
+    const auth = seen[0]?.auth ?? ""
+    const b64 = auth.replace(/^Basic /, "")
+    const binary = atob(b64)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+    const decoded = new TextDecoder().decode(bytes)
+    expect(decoded).toBe("kullanıcı:şifre")
+  })
+
   it("function-form credentials are resolved per request", async () => {
     const { seen, driver } = recordingDriver()
     let i = 0

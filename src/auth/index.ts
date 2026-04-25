@@ -165,7 +165,11 @@ async function resolveToken(source: TokenSource): Promise<string> {
 }
 
 function base64(input: string): string {
-  if (typeof btoa === "function") return btoa(input)
-  // Node fallback
-  return Buffer.from(input, "utf-8").toString("base64")
+  // UTF-8 safe: btoa alone takes Latin1 only and explodes on non-ASCII
+  // user/pass (a real bug in browsers). Encode to bytes first, then
+  // pack into a Latin1 string so btoa accepts it.
+  const bytes = new TextEncoder().encode(input)
+  let binary = ""
+  for (const b of bytes) binary += String.fromCharCode(b)
+  return btoa(binary)
 }

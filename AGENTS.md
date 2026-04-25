@@ -12,7 +12,7 @@ making changes.
 1. **Fetch-first.** Drivers consume a real `Request` and return a real `Response`.
 2. **ESM-only.** No CJS, no UMD. Match `unemail`/`sumak`.
 3. **Zero core deps.** Subpath helpers may declare peer dependencies.
-4. **`AbortSignal.any` required.** Floor: Node 20.5+, Bun, Deno, modern browsers.
+4. **Modern runtime baseline.** Node ≥ 22.11, Bun ≥ 1.2, Deno ≥ 2.0, Baseline 2024 browsers. Use native `AbortSignal.any`, `AbortSignal.timeout`, `Headers.getSetCookie()`, `Promise.withResolvers()` directly — no polyfills, no feature checks unless the API is V8-specific (e.g. `Error.captureStackTrace`).
 5. **Hooks > interceptors.** Per-phase typed context, array-merging, fatal error rule.
 6. **NetworkError vs HTTPError** are distinct classes.
 7. **Promise-only API.** No dual Promise/Stream surface.
