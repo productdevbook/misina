@@ -43,8 +43,10 @@
     "wretch",
     "zero-dependencies"
   ],
-  "homepage": "https://github.com/productdevbook/misina#readme",
-  "bugs": "https://github.com/productdevbook/misina/issues",
+  "homepage": "https://github.com/productdevbook/misina",
+  "bugs": {
+    "url": "https://github.com/productdevbook/misina/issues"
+  },
   "license": "MIT",
   "author": "productdevbook <hi@productdevbook.com>",
   "repository": {
