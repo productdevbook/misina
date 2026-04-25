@@ -205,7 +205,7 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
     )
 
     if (options.validateResponse) {
-      const verdict = options.validateResponse({
+      const verdict = await options.validateResponse({
         status: response.status,
         headers: response.headers,
         data,

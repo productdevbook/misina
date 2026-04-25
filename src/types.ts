@@ -151,7 +151,7 @@ export interface MisinaOptions {
     headers: Headers
     data: unknown
     response: Response
-  }) => boolean | Error
+  }) => boolean | Error | Promise<boolean | Error>
   /**
    * Redirect handling.
    * - `'manual'` (default): misina follows redirects, applies header policy, fires beforeRedirect.
@@ -261,7 +261,7 @@ export interface MisinaResolvedOptions {
         headers: Headers
         data: unknown
         response: Response
-      }) => boolean | Error)
+      }) => boolean | Error | Promise<boolean | Error>)
     | undefined
   parseJson: (text: string, ctx?: { request: Request; response: Response }) => unknown
   stringifyJson: (value: unknown) => string
