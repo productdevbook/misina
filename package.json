@@ -81,6 +81,10 @@
     "./openapi": {
       "types": "./dist/openapi/index.d.mts",
       "default": "./dist/openapi/index.mjs"
+    },
+    "./breaker": {
+      "types": "./dist/breaker/index.d.mts",
+      "default": "./dist/breaker/index.mjs"
     }
   },
   "scripts": {
