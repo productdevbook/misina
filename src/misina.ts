@@ -147,6 +147,7 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
           options.method,
           options.parseJson,
           options.responseType,
+          ctx.request,
         )
         const httpError = new HTTPError(response, ctx.request, data)
         ctx.error = httpError
@@ -200,6 +201,7 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
       options.method,
       options.parseJson,
       options.responseType,
+      ctx.request,
     )
 
     if (options.validateResponse) {
@@ -334,9 +336,13 @@ function resolveOptions(
     redirectAllowDowngrade: init.redirectAllowDowngrade ?? defaults.redirectAllowDowngrade ?? false,
     throwHttpErrors: init.throwHttpErrors ?? defaults.throwHttpErrors ?? true,
     validateResponse: init.validateResponse ?? defaults.validateResponse,
-    parseJson: init.parseJson ?? defaults.parseJson ?? JSON.parse,
+    parseJson: init.parseJson ?? defaults.parseJson ?? defaultParseJson,
     stringifyJson: init.stringifyJson ?? defaults.stringifyJson ?? JSON.stringify,
   }
+}
+
+function defaultParseJson(text: string): unknown {
+  return JSON.parse(text)
 }
 
 function mergeHeaders(

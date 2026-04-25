@@ -95,8 +95,9 @@ const JSON_RE = /^application\/(?:[\w!#$%&*.^`~-]*\+)?json(;.+)?$/i
 export async function parseResponseBody(
   response: Response,
   method: string,
-  parseJson: (text: string) => unknown,
+  parseJson: (text: string, ctx?: { request: Request; response: Response }) => unknown,
   responseType?: "json" | "text" | "arrayBuffer" | "blob" | "stream",
+  request?: Request,
 ): Promise<unknown> {
   if (isBodylessResponse(response, method)) {
     if (responseType === "text") return ""
@@ -115,7 +116,7 @@ export async function parseResponseBody(
   if (responseType === "json" || JSON_RE.test(ct)) {
     const text = await response.text()
     if (text === "") return undefined
-    return parseJson(text)
+    return parseJson(text, request ? { request, response } : undefined)
   }
   if (ct.startsWith("text/")) return response.text()
   return response.arrayBuffer()

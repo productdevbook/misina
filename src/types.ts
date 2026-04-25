@@ -165,8 +165,12 @@ export interface MisinaOptions {
   redirectMaxCount?: number
   /** Allow https → http redirect. Default: false. */
   redirectAllowDowngrade?: boolean
-  /** Custom JSON parser. Default: JSON.parse. */
-  parseJson?: (text: string) => unknown
+  /**
+   * Custom JSON parser. Default: JSON.parse. Optional context (request +
+   * response) lets advanced parsers route on URL or content-type
+   * (matches ky [PR #849](https://github.com/sindresorhus/ky/pull/849)).
+   */
+  parseJson?: (text: string, ctx?: { request: Request; response: Response }) => unknown
   /** Custom JSON serializer for request bodies. Default: JSON.stringify. */
   stringifyJson?: (value: unknown) => string
   /** How arrays in `query` are serialized. Default: 'repeat'. */
@@ -259,7 +263,7 @@ export interface MisinaResolvedOptions {
         response: Response
       }) => boolean | Error)
     | undefined
-  parseJson: (text: string) => unknown
+  parseJson: (text: string, ctx?: { request: Request; response: Response }) => unknown
   stringifyJson: (value: unknown) => string
 }
 
