@@ -1,21 +1,52 @@
-# misina
+<p align="center">
+  <br>
+  <img src=".github/assets/cover.svg" alt="misina — Driver-based, zero-dependency TypeScript HTTP client" width="100%">
+  <br><br>
+  <b style="font-size: 2em;">misina</b>
+  <br><br>
+  Driver-based, zero-dependency TypeScript HTTP client.
+  <br>
+  Hooks lifecycle, retry with <code>Retry-After</code>, error taxonomy, redirect header policy. Pure TypeScript, works everywhere.
+  <br><br>
+  <a href="https://npmjs.com/package/misina"><img src="https://img.shields.io/npm/v/misina?style=flat&colorA=18181B&colorB=06b6d4" alt="npm version"></a>
+  <a href="https://npmjs.com/package/misina"><img src="https://img.shields.io/npm/dm/misina?style=flat&colorA=18181B&colorB=06b6d4" alt="npm downloads"></a>
+  <a href="https://bundlephobia.com/result?p=misina"><img src="https://img.shields.io/bundlephobia/minzip/misina?style=flat&colorA=18181B&colorB=06b6d4" alt="bundle size"></a>
+  <a href="https://github.com/productdevbook/misina/blob/main/LICENSE"><img src="https://img.shields.io/github/license/productdevbook/misina?style=flat&colorA=18181B&colorB=06b6d4" alt="license"></a>
+</p>
 
-Driver-based, zero-dependency, fetch-first TypeScript HTTP client.
+---
 
-Hooks lifecycle, retry with `Retry-After`, error taxonomy, redirect header
-policy, and the Web Fetch API as the canonical wire format. Works on Node
-≥ 20.11, Bun, Deno, Cloudflare Workers, and modern browsers.
+## Table of Contents
 
-```ts
-import { createMisina } from "misina"
+- [Highlights](#highlights)
+- [Install](#install)
+- [Quick Start](#quick-start)
+- [API](#api)
+  - [createMisina](#createmisinaoptions)
+  - [Hooks](#hooks)
+  - [Retry](#retry)
+  - [Errors](#errors)
+  - [Status-Based Catchers](#status-based-catchers)
+  - [validateResponse](#validateresponse)
+  - [Custom JSON](#custom-json)
+  - [.extend() and replaceOption](#extend-and-replaceoption)
+  - [Drivers](#drivers)
+- [Subpaths](#subpaths)
+  - [misina/test](#misinatest)
+  - [misina/auth](#misinaauth)
+  - [misina/cookie](#misinacookie)
+  - [misina/cache](#misinacache)
+  - [misina/dedupe](#misinadedupe)
+  - [misina/paginate](#misinapaginate)
+  - [misina/stream](#misinastream)
+- [Progress Events](#progress-events)
+- [defer — Late-Binding Config](#defer--late-binding-config)
+- [Type-Safe Path Generics](#type-safe-path-generics)
+- [Standard Schema Validation](#standard-schema-validation)
+- [Security Defaults](#security-defaults)
+- [Compared To](#compared-to)
 
-const api = createMisina({ baseURL: "https://api.example.com" })
-
-const user = await api.get<{ id: string; name: string }>("/users/42")
-//          ^? MisinaResponse<{ id: string; name: string }>
-```
-
-## Why misina
+## Highlights
 
 - **Zero deps** in the core. Optional peers only.
 - **ESM-only**, tree-shakeable, sub-path exports for everything beyond the core.
@@ -38,9 +69,9 @@ npm install misina
 bun add misina
 ```
 
-Requires Node ≥ 20.11. Floor for `AbortSignal.any` is Node 20.5+, Bun, Deno, modern browsers.
+Requires Node ≥ 20.11. `AbortSignal.any` floor: Node 20.5+, Bun, Deno, modern browsers.
 
-## Quick start
+## Quick Start
 
 ```ts
 import { createMisina } from "misina"
@@ -196,7 +227,7 @@ try {
 }
 ```
 
-### Status-based catchers
+### Status-Based Catchers
 
 ```ts
 const user = await api
@@ -206,7 +237,7 @@ const user = await api
   .onError("NetworkError", () => useCachedFallback())
 ```
 
-### `validateResponse`
+### validateResponse
 
 Treat `200 { ok: false }` as failure:
 
@@ -231,7 +262,7 @@ createMisina({
 })
 ```
 
-### `.extend()` and `replaceOption`
+### .extend() and replaceOption
 
 ```ts
 import { replaceOption } from "misina"
@@ -267,7 +298,11 @@ const mock = mockDriver({ response: new Response(JSON.stringify({ ok: 1 })) })
 const test = createMisina({ driver: mock })
 ```
 
-### Test utilities — `misina/test`
+## Subpaths
+
+Each helper lives at `misina/<name>` so you only pay for what you import.
+
+### misina/test
 
 ```ts
 import { createTestMisina } from "misina/test"
@@ -286,7 +321,7 @@ expect(t.calls).toHaveLength(1)
 expect(t.lastCall().method).toBe("GET")
 ```
 
-### Auth — `misina/auth`
+### misina/auth
 
 ```ts
 import { withBearer, withBasic, withRefreshOn401, withCsrf } from "misina/auth"
@@ -302,7 +337,7 @@ const django = withCsrf(api, { cookieName: "csrftoken", headerName: "X-CSRFToken
 
 `withRefreshOn401` collapses concurrent 401s into a single in-flight refresh.
 
-### Cookie jar — `misina/cookie`
+### misina/cookie
 
 ```ts
 import { withCookieJar, MemoryCookieJar } from "misina/cookie"
@@ -314,7 +349,7 @@ await api.post("/login", { user, pass }) // Set-Cookie stored
 await api.get("/profile") // Cookie sent automatically
 ```
 
-### Cache — `misina/cache`
+### misina/cache
 
 ```ts
 import { withCache, memoryStore } from "misina/cache"
@@ -326,7 +361,7 @@ const api = withCache(createMisina({ baseURL }), {
 })
 ```
 
-### Request dedupe — `misina/dedupe`
+### misina/dedupe
 
 ```ts
 import { withDedupe } from "misina/dedupe"
@@ -335,7 +370,7 @@ const api = withDedupe(createMisina({ baseURL }))
 // Concurrent identical GETs collapse onto one network request.
 ```
 
-### Pagination — `misina/paginate`
+### misina/paginate
 
 ```ts
 import { paginate, paginateAll } from "misina/paginate"
@@ -353,7 +388,7 @@ const all = await paginateAll<Item>(api, "/items", {
 })
 ```
 
-### Streaming — `misina/stream`
+### misina/stream
 
 ```ts
 import { sseStream, ndjsonStream } from "misina/stream"
@@ -369,7 +404,7 @@ for await (const item of ndjsonStream<Item>(res2.raw)) {
 }
 ```
 
-### Progress events
+## Progress Events
 
 ```ts
 await api.post("/upload", file, {
@@ -386,7 +421,7 @@ Upload progress streams the body in 64 KB chunks via `duplex: 'half'` on
 runtimes that support it (Node 20+, Bun, Deno, Chrome 105+). On unsupported
 runtimes the callback is silently skipped.
 
-### `defer` — late-binding config
+## defer — Late-Binding Config
 
 ```ts
 const api = createMisina({
@@ -399,7 +434,7 @@ const api = createMisina({
 
 `defer` callbacks fire **after** init hooks, **before** beforeRequest hooks.
 
-### Type-safe path generics — `createMisinaTyped`
+## Type-Safe Path Generics
 
 ```ts
 import { createMisinaTyped } from "misina"
@@ -420,7 +455,7 @@ const list = await api.get("/users", { query: { page: 2 } })
 
 Path params are substituted at runtime: `/users/:id` → `/users/42` (also `{id}` syntax).
 
-### Standard Schema validation
+## Standard Schema Validation
 
 ```ts
 import { validated, validateSchema } from "misina"
@@ -434,14 +469,14 @@ const user = await validated(api.get("/users/42"), UserSchema)
 
 Throws `SchemaValidationError` with `.issues` on mismatch.
 
-### Security defaults
+## Security Defaults
 
 - Redirect mode `'manual'` by default — misina follows redirects itself.
 - Cross-origin redirects strip `Authorization`, `Cookie`, `Proxy-Authorization`, `WWW-Authenticate`. Allowlist via `redirectSafeHeaders`.
 - `https → http` redirects refused unless `redirectAllowDowngrade: true`.
 - Header values containing CR/LF/NUL throw — request smuggling guard.
 
-## Compared to
+## Compared To
 
 - **`ofetch`** — same shape, richer hooks, retry granularity (`Retry-After`, jitter), `NetworkError`-vs-`HTTPError` distinction, redirect security policy.
 - **`ky`** — closest aesthetic neighbor. Adds driver pattern, cross-runtime cookie jar, pagination, status catchers, dedupe.

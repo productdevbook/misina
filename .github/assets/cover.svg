@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 628" width="1200" height="628">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0e1116"/>
+      <stop offset="1" stop-color="#0b1620"/>
+    </linearGradient>
+    <linearGradient id="line" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#06b6d4" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#06b6d4" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#22d3ee" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="line2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0891b2" stop-opacity="0"/>
+      <stop offset="0.6" stop-color="#22d3ee" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#67e8f9" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#06b6d4" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#06b6d4" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="0.5"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="628" fill="url(#bg)"/>
+
+  <!-- subtle grid -->
+  <g stroke="#1f2937" stroke-width="1" opacity="0.5">
+    <path d="M0 157 H1200 M0 314 H1200 M0 471 H1200"/>
+    <path d="M200 0 V628 M400 0 V628 M600 0 V628 M800 0 V628 M1000 0 V628"/>
+  </g>
+
+  <!-- glow accent -->
+  <ellipse cx="900" cy="320" rx="520" ry="320" fill="url(#glow)" opacity="0.7"/>
+
+  <!-- flowing lines (the "misina" — fishing line / data stream metaphor) -->
+  <g fill="none" stroke-width="2" filter="url(#soft)">
+    <path d="M-50 350 C 200 250, 400 480, 700 320 S 1100 220, 1300 360" stroke="url(#line)" stroke-width="3"/>
+    <path d="M-50 380 C 220 320, 420 510, 720 360 S 1120 270, 1300 400" stroke="url(#line2)" stroke-width="2"/>
+    <path d="M-50 420 C 240 380, 440 540, 740 400 S 1140 320, 1300 450" stroke="url(#line2)" stroke-width="1.5" opacity="0.6"/>
+    <path d="M-50 460 C 260 440, 460 580, 760 440 S 1160 380, 1300 500" stroke="url(#line2)" stroke-width="1" opacity="0.4"/>
+  </g>
+
+  <!-- node dots along the main line -->
+  <g fill="#22d3ee">
+    <circle cx="180" cy="289" r="5"/>
+    <circle cx="420" cy="385" r="5"/>
+    <circle cx="700" cy="320" r="6"/>
+    <circle cx="980" cy="252" r="5"/>
+  </g>
+
+  <!-- category eyebrow -->
+  <text x="80" y="170" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, monospace" font-size="20" font-weight="500" fill="#67e8f9" letter-spacing="6" opacity="0.85">HTTP CLIENT · TS · ZERO-DEPS</text>
+
+  <!-- name -->
+  <text x="80" y="290" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Inter, sans-serif" font-size="148" font-weight="800" fill="#f1f5f9" letter-spacing="-3">misina</text>
+
+  <!-- tagline -->
+  <text x="80" y="358" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Inter, sans-serif" font-size="32" font-weight="500" fill="#cbd5e1" letter-spacing="-0.5">Driver-based, fetch-first HTTP client.</text>
+  <text x="80" y="402" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Inter, sans-serif" font-size="22" font-weight="400" fill="#94a3b8" letter-spacing="-0.2">Hooks · Retry · Redirect policy · Web Fetch API.</text>
+
+  <!-- runtimes badge row -->
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, monospace" font-size="14" font-weight="500" fill="#94a3b8">
+    <g>
+      <rect x="80" y="500" width="76" height="32" rx="6" fill="#0f172a" stroke="#1f2937"/>
+      <text x="118" y="521" text-anchor="middle">Node 20+</text>
+    </g>
+    <g>
+      <rect x="166" y="500" width="58" height="32" rx="6" fill="#0f172a" stroke="#1f2937"/>
+      <text x="195" y="521" text-anchor="middle">Bun</text>
+    </g>
+    <g>
+      <rect x="234" y="500" width="64" height="32" rx="6" fill="#0f172a" stroke="#1f2937"/>
+      <text x="266" y="521" text-anchor="middle">Deno</text>
+    </g>
+    <g>
+      <rect x="308" y="500" width="100" height="32" rx="6" fill="#0f172a" stroke="#1f2937"/>
+      <text x="358" y="521" text-anchor="middle">CF Workers</text>
+    </g>
+    <g>
+      <rect x="418" y="500" width="92" height="32" rx="6" fill="#0f172a" stroke="#1f2937"/>
+      <text x="464" y="521" text-anchor="middle">Browsers</text>
+    </g>
+  </g>
+
+  <!-- bottom-right brand mark -->
+  <g transform="translate(1080, 540)">
+    <circle r="8" fill="#06b6d4"/>
+    <text x="22" y="6" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, monospace" font-size="14" fill="#94a3b8" letter-spacing="2">productdevbook</text>
+  </g>
+</svg>
