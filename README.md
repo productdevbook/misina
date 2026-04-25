@@ -61,7 +61,7 @@
 - **Streaming** — built-in SSE (WHATWG HTML §9.2 compliant) and NDJSON helpers.
 - **HTTP cache** — RFC 9111 compliant: `Cache-Control: no-store` / `max-age`, ETag / Last-Modified revalidation, `Vary` per-variant keying.
 - **Cookie jar** — RFC 6265 compliant: domain match check, Path matching, Secure flag, Max-Age / Expires.
-- **345 tests** across 46 files, exhaustively covering specs and edge cases.
+- **359 tests** across 49 files, exhaustively covering specs and edge cases.
 - **Subpath helpers**: `auth`, `cache`, `cookie`, `dedupe`, `paginate`, `stream`, `test`.
 
 ## Install
