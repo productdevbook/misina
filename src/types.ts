@@ -125,7 +125,12 @@ export interface MisinaOptions {
   baseURL?: string
   /** Allow absolute URLs in the request input to override baseURL. Default: true. */
   allowAbsoluteUrls?: boolean
-  headers?: Record<string, string>
+  /**
+   * HTTP headers. Accepts a Record, a Headers instance, or [k, v] tuple pairs.
+   * Values that are `undefined` or `null` are silently dropped — handy for
+   * optional headers like `{ authorization: token ?? undefined }`.
+   */
+  headers?: HeadersInit | Record<string, string | undefined>
   /** Per-attempt timeout in milliseconds. Default: 10_000. `false` to disable. */
   timeout?: number | false
   /** Wall-clock deadline across all attempts (incl. retry delays). Default: false (disabled). */

@@ -353,10 +353,9 @@ function defaultParseJson(text: string): unknown {
   return JSON.parse(text)
 }
 
-function mergeHeaders(
-  a: Record<string, string> | undefined,
-  b: Record<string, string> | undefined,
-): Record<string, string> {
+type HeadersInput = HeadersInit | Record<string, string | undefined> | undefined
+
+function mergeHeaders(a: HeadersInput, b: HeadersInput): Record<string, string> {
   const out: Record<string, string> = {}
   copyHeadersInto(out, a)
   copyHeadersInto(out, b)

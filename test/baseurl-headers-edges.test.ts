@@ -99,7 +99,7 @@ describe("headers — input formats", () => {
     const m = createMisina({
       driver,
       retry: 0,
-      headers: new Headers({ "x-tag": "default" }) as unknown as Record<string, string>,
+      headers: new Headers({ "x-tag": "default" }),
     })
     await m.get("https://api.test/")
     expect(seen[0]?.headers["x-tag"]).toBe("default")
@@ -113,7 +113,7 @@ describe("headers — input formats", () => {
       headers: [
         ["x-tag", "default"],
         ["x-extra", "1"],
-      ] as unknown as Record<string, string>,
+      ],
     })
     await m.get("https://api.test/")
     expect(seen[0]?.headers["x-tag"]).toBe("default")
@@ -136,7 +136,7 @@ describe("headers — input formats", () => {
     const { seen, driver } = recordingDriver()
     const m = createMisina({ driver, retry: 0 })
     await m.get("https://api.test/", {
-      headers: { "x-real": "1", "x-removed": undefined as unknown as string },
+      headers: { "x-real": "1", "x-removed": undefined },
     })
     expect(seen[0]?.headers["x-real"]).toBe("1")
     expect(seen[0]?.headers["x-removed"]).toBeUndefined()

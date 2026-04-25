@@ -38,7 +38,7 @@ export function mergeOptions(a: MisinaOptions, b: MisinaOptions): MisinaOptions 
     }
 
     if (key === "headers") {
-      out.headers = mergeHeaders(a.headers, value as Record<string, string>)
+      out.headers = mergeHeaders(a.headers, value as HeadersInput)
     } else if (key === "hooks") {
       out.hooks = mergeHookConfigs(a.hooks, value as MisinaHooks)
     } else {
@@ -49,17 +49,30 @@ export function mergeOptions(a: MisinaOptions, b: MisinaOptions): MisinaOptions 
   return out
 }
 
-function mergeHeaders(
-  a: Record<string, string> | undefined,
-  b: Record<string, string> | undefined,
-): Record<string, string> {
+type HeadersInput = HeadersInit | Record<string, string | undefined> | undefined
+
+function mergeHeaders(a: HeadersInput, b: HeadersInput): Record<string, string> {
   // Case-insensitive: lowercased keys, last wins. Otherwise `{ Authorization }`
   // and `{ authorization }` would coexist in the merged record and produce
   // duplicate headers downstream.
   const out: Record<string, string> = {}
-  if (a) for (const [k, v] of Object.entries(a)) out[k.toLowerCase()] = v
-  if (b) for (const [k, v] of Object.entries(b)) out[k.toLowerCase()] = v
+  copyInto(out, a)
+  copyInto(out, b)
   return out
+}
+
+function copyInto(out: Record<string, string>, source: HeadersInput): void {
+  if (source == null) return
+  const entries: [string, unknown][] =
+    source instanceof Headers
+      ? [...source.entries()]
+      : Array.isArray(source)
+        ? (source as [string, unknown][])
+        : Object.entries(source as Record<string, unknown>)
+  for (const [k, v] of entries) {
+    if (v === undefined || v === null) continue
+    out[k.toLowerCase()] = String(v)
+  }
 }
 
 function mergeHookConfigs(a: MisinaHooks | undefined, b: MisinaHooks | undefined): MisinaHooks {
