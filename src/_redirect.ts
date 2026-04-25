@@ -48,7 +48,14 @@ export async function followRedirects(
     const location = response.headers.get("location")
     if (!location) return response
 
-    const nextUrl = new URL(location, current.url).toString()
+    let nextUrl: string
+    try {
+      nextUrl = new URL(location, current.url).toString()
+    } catch {
+      throw new Error(
+        `misina: redirect Location header could not be parsed: ${JSON.stringify(location)}`,
+      )
+    }
 
     if (!options.redirectAllowDowngrade && isHttpsDowngrade(current.url, nextUrl)) {
       throw new Error(

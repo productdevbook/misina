@@ -79,6 +79,13 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
     let lastError: Error | undefined
     let lastResponse: Response | undefined
 
+    // Snapshot the original request and never hand it to the driver directly.
+    // Each attempt clones it so the body can be re-read on retry. Streamed
+    // bodies cannot be cloned after the first read — those still require
+    // an explicit beforeRetry override (pinned in test/stream-retry.test.ts).
+    const originalRequest = ctx.request
+    let userOverride: Request | undefined
+
     for (let attempt = 0; attempt <= retry.limit; attempt++) {
       ctx.attempt = attempt
 
@@ -88,12 +95,16 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
 
         for (const hook of options.hooks.beforeRetry) {
           const out = await hook(ctx)
-          if (out instanceof Request) ctx.request = out
+          if (out instanceof Request) {
+            userOverride = out
+            ctx.request = out
+          }
         }
       }
 
       const attemptSignal = buildAttemptSignal(options, totalSignal)
-      const attemptRequest = withSignal(ctx.request, attemptSignal)
+      const baseRequest = userOverride ?? originalRequest.clone()
+      const attemptRequest = withSignal(baseRequest, attemptSignal)
 
       let response: Response
       try {

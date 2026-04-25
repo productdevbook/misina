@@ -42,6 +42,15 @@ export function serializeBody(
   }
 
   if (typeof body === "object") {
+    // Refuse to silently JSON-stringify class instances that aren't plain
+    // objects and don't define toJSON — that path used to swallow {} for
+    // a `new MyClass()` payload, which is almost certainly a bug.
+    if (!isJsonSerializable(body)) {
+      throw new TypeError(
+        "misina: body is a non-plain object without a toJSON() method; " +
+          "wrap it manually or convert to a plain object before passing.",
+      )
+    }
     if (!hasContentType(headers)) {
       headers["content-type"] = "application/json"
     }
@@ -49,6 +58,13 @@ export function serializeBody(
   }
 
   return String(body)
+}
+
+function isJsonSerializable(value: object): boolean {
+  if (Array.isArray(value)) return true
+  if (typeof (value as { toJSON?: unknown }).toJSON === "function") return true
+  const proto = Object.getPrototypeOf(value)
+  return proto === Object.prototype || proto === null
 }
 
 function hasContentType(headers: Record<string, string>): boolean {

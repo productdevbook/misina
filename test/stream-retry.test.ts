@@ -55,24 +55,38 @@ describe("stream body reassignment (#34)", () => {
     expect(bodiesSeen[1]).toBe("retry-payload")
   })
 
-  it("retrying a drained stream without reassignment throws (Web Fetch contract)", async () => {
+  it("Request.clone() tees the body so streamed retries also work without reassignment", async () => {
+    let attempt = 0
+    const bodiesSeen: string[] = []
     const driver = defineDriver(() => ({
       name: "flaky-upload",
-      request: async () => new Response("upstream error", { status: 503 }),
+      request: async (req) => {
+        attempt++
+        bodiesSeen.push(req.body ? await req.clone().text() : "")
+        if (attempt === 1) return new Response("upstream error", { status: 503 })
+        return new Response("{}", {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+      },
     }))()
 
     const m = createMisina({
       driver,
       retry: { limit: 1, methods: ["PUT"], delay: () => 0 },
-      // No beforeRetry — Request constructor refuses to re-wrap a used Request.
     })
 
-    await expect(
-      m.request("https://example.test/upload", {
-        method: "PUT",
-        body: makeStream("only-payload"),
-      }),
-    ).rejects.toThrow(/already been used/)
+    // Misina snapshots the original Request and clones it per attempt — the
+    // platform's clone() tees the underlying ReadableStream so both attempts
+    // see the full body without an explicit beforeRetry override.
+    await m.request("https://example.test/upload", {
+      method: "PUT",
+      body: makeStream("only-payload"),
+    })
+
+    expect(attempt).toBe(2)
+    expect(bodiesSeen[0]).toBe("only-payload")
+    expect(bodiesSeen[1]).toBe("only-payload")
   })
 })
 
