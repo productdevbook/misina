@@ -124,12 +124,15 @@ export async function* linesOf(response: Response): AsyncIterable<string> {
     }
     if (buffer) yield buffer.endsWith("\r") ? buffer.slice(0, -1) : buffer
   } finally {
-    reader.releaseLock()
-    // Ensure underlying stream is cancelled if iterator was abandoned early.
+    // Cancel through the reader so the cancel signal traverses the
+    // pipeThrough(TextDecoderStream) chain back to the source body. Just
+    // releasing the lock and calling body.cancel() doesn't reach the source
+    // in some runtimes, so the consumer's source.cancel() never fires.
     try {
-      await body.cancel()
+      await reader.cancel()
     } catch {
       // already closed
     }
+    reader.releaseLock()
   }
 }

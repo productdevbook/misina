@@ -204,13 +204,19 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
     ctx: MisinaContext,
   ): Promise<MisinaResponse<T>> {
     const { options } = ctx
-    const data = await parseResponseBody(
-      response,
-      options.method,
-      options.parseJson,
-      options.responseType,
-      ctx.request,
-    )
+    // Error responses get a parse-tolerant path: a malformed JSON 500 should
+    // still surface as HTTPError(status=500, data=<text>), not a SyntaxError
+    // that buries the real failure.
+    const data =
+      !response.ok && options.throwHttpErrors
+        ? await parseResponseBodyTolerant(response, options, ctx)
+        : await parseResponseBody(
+            response,
+            options.method,
+            options.parseJson,
+            options.responseType,
+            ctx.request,
+          )
 
     if (options.validateResponse) {
       const verdict = await options.validateResponse({
@@ -498,6 +504,30 @@ async function applyDefer(
 
   // Re-resolve URL in case headers changed query/baseURL semantics
   // (we don't change url after defer for now — defer is for headers/timing primarily)
+}
+
+async function parseResponseBodyTolerant(
+  response: Response,
+  options: MisinaResolvedOptions,
+  ctx: MisinaContext,
+): Promise<unknown> {
+  try {
+    return await parseResponseBody(
+      response,
+      options.method,
+      options.parseJson,
+      options.responseType,
+      ctx.request,
+    )
+  } catch {
+    // Malformed body on an error response: fall back to raw text so the
+    // caller still gets an HTTPError with whatever the server actually sent.
+    try {
+      return await response.clone().text()
+    } catch {
+      return undefined
+    }
+  }
 }
 
 function abortReasonAsError(signal: AbortSignal): Error {
