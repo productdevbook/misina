@@ -63,13 +63,16 @@ export async function followRedirects(
       options.redirectSafeHeaders,
     )
 
-    let next = new Request(nextUrl, {
-      method: shouldDowngradeToGet(response.status, current.method) ? "GET" : current.method,
+    const downgrade = shouldDowngradeToGet(response.status, current.method)
+    const nextInit: RequestInit & { duplex?: "half" } = {
+      method: downgrade ? "GET" : current.method,
       headers: nextHeaders,
-      body: shouldDowngradeToGet(response.status, current.method) ? null : current.body,
+      body: downgrade ? null : current.body,
       redirect: "manual",
       signal: current.signal,
-    })
+    }
+    if (!downgrade && current.body instanceof ReadableStream) nextInit.duplex = "half"
+    let next = new Request(nextUrl, nextInit)
 
     for (const hook of options.hooks.beforeRedirect) {
       const out = await hook({
@@ -88,7 +91,12 @@ export async function followRedirects(
 
 function forceManualRedirect(request: Request): Request {
   if (request.redirect === "manual") return request
-  return new Request(request, { redirect: "manual", signal: request.signal })
+  const init: RequestInit & { duplex?: "half" } = {
+    redirect: "manual",
+    signal: request.signal,
+  }
+  if (request.body instanceof ReadableStream) init.duplex = "half"
+  return new Request(request, init)
 }
 
 function shouldDowngradeToGet(status: number, method: string): boolean {

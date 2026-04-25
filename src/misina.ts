@@ -371,6 +371,7 @@ async function buildRequest(
         init.duplex = "half"
       } else {
         init.body = serialized
+        if (serialized instanceof ReadableStream) init.duplex = "half"
       }
     }
     init.headers = headers
@@ -392,7 +393,10 @@ function buildAttemptSignal(
 
 function withSignal(request: Request, signal: AbortSignal | undefined): Request {
   if (!signal) return request
-  return new Request(request, { signal })
+  // ReadableStream bodies require explicit `duplex: 'half'` when re-wrapping.
+  const init: RequestInit & { duplex?: "half" } = { signal }
+  if (request.body instanceof ReadableStream) init.duplex = "half"
+  return new Request(request, init)
 }
 
 function computeDeadline(totalTimeout: number | false): number | undefined {
