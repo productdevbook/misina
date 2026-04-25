@@ -86,7 +86,8 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
     // Each attempt clones it so the body can be re-read on retry. Streamed
     // bodies cannot be cloned after the first read — those still require
     // an explicit beforeRetry override (pinned in test/stream-retry.test.ts).
-    const originalRequest = ctx.request
+    const originalRequest = applyIdempotencyKey(ctx.request, options)
+    ctx.request = originalRequest
     let userOverride: Request | undefined
 
     for (let attempt = 0; attempt <= retry.limit; attempt++) {
@@ -343,6 +344,7 @@ function resolveOptions(
     onDownloadProgress: init.onDownloadProgress ?? defaults.onDownloadProgress,
     cache: init.cache ?? defaults.cache,
     credentials: init.credentials ?? defaults.credentials,
+    idempotencyKey: init.idempotencyKey ?? defaults.idempotencyKey ?? false,
     next: init.next ?? defaults.next,
     redirect: init.redirect ?? defaults.redirect ?? "manual",
     redirectSafeHeaders: init.redirectSafeHeaders ?? defaults.redirectSafeHeaders,
@@ -504,6 +506,32 @@ async function applyDefer(
 
   // Re-resolve URL in case headers changed query/baseURL semantics
   // (we don't change url after defer for now — defer is for headers/timing primarily)
+}
+
+const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "OPTIONS", "PUT"])
+
+function applyIdempotencyKey(request: Request, options: MisinaResolvedOptions): Request {
+  const policy = options.idempotencyKey
+  if (policy === false || policy == null) return request
+  // Only worth setting on methods that aren't already idempotent. PUT is
+  // idempotent by spec; POST/PATCH/DELETE are the targets.
+  if (IDEMPOTENT_METHODS.has(options.method)) return request
+  if (options.retry.limit <= 0) return request
+  // User-supplied key takes precedence — don't overwrite.
+  if (request.headers.has("idempotency-key")) return request
+
+  const value =
+    policy === "auto"
+      ? crypto.randomUUID()
+      : typeof policy === "function"
+        ? policy(request)
+        : policy
+
+  const headers = new Headers(request.headers)
+  headers.set("idempotency-key", value)
+  const init: RequestInit & { duplex?: "half" } = { headers }
+  if (request.body instanceof ReadableStream) init.duplex = "half"
+  return new Request(request, init)
 }
 
 async function parseResponseBodyTolerant(

@@ -193,6 +193,20 @@ export interface MisinaOptions {
   onUploadProgress?: ProgressCallback
   /** Fired as the response body is consumed. */
   onDownloadProgress?: ProgressCallback
+  /**
+   * Send an `Idempotency-Key` header on retried mutations so the server can
+   * deduplicate. The same key is reused across all attempts of one logical
+   * request — the whole point.
+   *
+   * - `'auto'` — generate a `crypto.randomUUID()` for non-idempotent methods
+   *   (POST, PATCH, DELETE) when `retry > 0` and the user hasn't set one.
+   * - `string` — use this exact value (must be stable per call).
+   * - `(req) => string` — custom generator, called once per logical request.
+   * - `false` (default) — disabled; misina sends nothing.
+   *
+   * Per draft-ietf-httpapi-idempotency-key. No competitor ships this today.
+   */
+  idempotencyKey?: false | "auto" | string | ((request: Request) => string)
   /** Standard `fetch` cache mode, passed through to runtime / Next.js. */
   cache?: RequestCache
   /** Standard `fetch` credentials mode. Only sent when explicitly set. */
@@ -254,6 +268,7 @@ export interface MisinaResolvedOptions {
   onDownloadProgress: ProgressCallback | undefined
   cache: RequestCache | undefined
   credentials: RequestCredentials | undefined
+  idempotencyKey: false | "auto" | string | ((request: Request) => string)
   next: { revalidate?: number | false; tags?: string[] } | undefined
   redirect: "manual" | "follow" | "error"
   redirectSafeHeaders: string[] | undefined
