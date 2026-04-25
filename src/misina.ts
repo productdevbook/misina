@@ -107,6 +107,11 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
           if (out instanceof Request) {
             userOverride = out
             ctx.request = out
+          } else if (out instanceof Response) {
+            // Hook supplied a synthetic response (cache fallback, etc.) —
+            // skip the network and finalize as if it came from the driver.
+            ctx.response = out
+            return finalizeResponse<T>(out, ctx)
           }
         }
       }

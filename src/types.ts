@@ -38,9 +38,16 @@ export type BeforeRequestHook = (
 
 /**
  * Hook fired before each retry attempt (attempt >= 1). Receives the error from
- * the previous attempt. May return a `Request` to replace the next request.
+ * the previous attempt.
+ *
+ * - Return a `Request` to replace the request used for the next attempt.
+ * - Return a `Response` to short-circuit retries entirely with that response
+ *   (cache fallback, manually-built default, etc.) — no further network
+ *   request is made and the hook chain stops.
  */
-export type BeforeRetryHook = (ctx: MisinaContext) => void | Request | Promise<void | Request>
+export type BeforeRetryHook = (
+  ctx: MisinaContext,
+) => void | Request | Response | Promise<void | Request | Response>
 
 /**
  * Hook fired after a `Response` is received, before status validation.
