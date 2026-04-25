@@ -1,8 +1,19 @@
 import { isPayloadMethod, parseResponseBody, serializeBody } from "./_body.ts"
+import { catchable } from "./_catch.ts"
 import { mergeHooks } from "./_hooks.ts"
+import { mergeOptions } from "./_merge.ts"
+import { followRedirects } from "./_redirect.ts"
+import {
+  calculateRetryDelay,
+  delayMs,
+  resolveRetry,
+  shouldRetryHttpError,
+  shouldRetryNetworkError,
+} from "./_retry.ts"
+import { composeSignals, isOurTimeoutAbort, timeoutSignal } from "./_signal.ts"
 import { appendQuery, resolveUrl } from "./_url.ts"
 import fetchDriverFactory from "./driver/fetch.ts"
-import { HTTPError, isRawNetworkError, NetworkError } from "./errors/index.ts"
+import { HTTPError, isRawNetworkError, NetworkError, TimeoutError } from "./errors/index.ts"
 import type {
   HttpMethod,
   Misina,
@@ -12,9 +23,12 @@ import type {
   MisinaRequestInit,
   MisinaResolvedOptions,
   MisinaResponse,
+  MisinaResponsePromise,
 } from "./types.ts"
 
 const METHODS_WITHOUT_BODY: HttpMethod[] = ["GET", "DELETE", "HEAD", "OPTIONS"]
+
+const DEFAULT_TIMEOUT = 10_000
 
 export function createMisina(defaults: MisinaOptions = {}): Misina {
   const driver: MisinaDriver =
@@ -28,7 +42,10 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
 
     for (const initHook of options.hooks.init) initHook(options)
 
-    let request = buildRequest(options)
+    const totalDeadline = computeDeadline(options.totalTimeout)
+    const totalSignal = totalDeadline ? deadlineSignal(totalDeadline) : undefined
+
+    let request = buildRequest(options, totalSignal)
     const ctx: MisinaContext = { request, options, attempt: 0 }
 
     for (const hook of options.hooks.beforeRequest) {
@@ -42,27 +59,99 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
       }
     }
 
-    let response: Response
-    try {
-      response = await driver.request(ctx.request)
-    } catch (cause) {
-      const error = isRawNetworkError(cause)
-        ? new NetworkError(`Network request to ${request.url} failed`, { cause })
-        : (cause as Error)
-      throw await runBeforeError(error, ctx)
-    }
+    return runWithRetry<T>(ctx, totalSignal)
+  }
 
-    ctx.response = response
+  async function runWithRetry<T>(
+    ctx: MisinaContext,
+    totalSignal: AbortSignal | undefined,
+  ): Promise<MisinaResponse<T>> {
+    const { options } = ctx
+    const { retry } = options
 
-    for (const hook of options.hooks.afterResponse) {
-      const out = await hook(ctx)
-      if (out instanceof Response) {
-        ctx.response = out
-        response = out
+    let lastError: Error | undefined
+    let lastResponse: Response | undefined
+
+    for (let attempt = 0; attempt <= retry.limit; attempt++) {
+      ctx.attempt = attempt
+
+      if (attempt > 0) {
+        const delay = calculateRetryDelay(retry, attempt, lastResponse)
+        await delayMs(delay, totalSignal ?? options.signal)
+
+        for (const hook of options.hooks.beforeRetry) {
+          const out = await hook(ctx)
+          if (out instanceof Request) ctx.request = out
+        }
       }
+
+      const attemptSignal = buildAttemptSignal(options, totalSignal)
+      const attemptRequest = withSignal(ctx.request, attemptSignal)
+
+      let response: Response
+      try {
+        response = await followRedirects(driver, attemptRequest, options, ctx)
+      } catch (cause) {
+        const error = mapTransportError(cause, attemptSignal, attemptRequest.url)
+        lastError = error
+
+        if (await canRetryError(retry, ctx, error, attempt)) continue
+        throw await runBeforeError(error, ctx)
+      }
+
+      ctx.response = response
+      lastResponse = response
+
+      for (const hook of options.hooks.afterResponse) {
+        const out = await hook(ctx)
+        if (out instanceof Response) {
+          ctx.response = out
+          response = out
+          lastResponse = out
+        }
+      }
+
+      if (attempt < retry.limit && !response.ok && shouldRetryHttpError(retry, options, response)) {
+        const dummy = new HTTPError(response, ctx.request, undefined)
+        ctx.error = dummy
+        if (await passesShouldRetry(retry, ctx)) {
+          lastError = dummy
+          continue
+        }
+      }
+
+      return finalizeResponse<T>(response, ctx)
     }
 
-    return finalizeResponse<T>(response, ctx)
+    throw await runBeforeError(lastError ?? new Error("Retry exhausted"), ctx)
+  }
+
+  async function canRetryError(
+    retry: ReturnType<typeof resolveRetry>,
+    ctx: MisinaContext,
+    error: Error,
+    attempt: number,
+  ): Promise<boolean> {
+    if (attempt >= retry.limit) return false
+    ctx.error = error
+
+    if (error instanceof TimeoutError) {
+      if (!retry.retryOnTimeout) return false
+      return passesShouldRetry(retry, ctx)
+    }
+    if (error instanceof NetworkError) {
+      if (!shouldRetryNetworkError(retry, ctx.options)) return false
+      return passesShouldRetry(retry, ctx)
+    }
+    return false
+  }
+
+  async function passesShouldRetry(
+    retry: ReturnType<typeof resolveRetry>,
+    ctx: MisinaContext,
+  ): Promise<boolean> {
+    if (!retry.shouldRetry) return true
+    return await retry.shouldRetry(ctx)
   }
 
   async function finalizeResponse<T>(
@@ -70,9 +159,28 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
     ctx: MisinaContext,
   ): Promise<MisinaResponse<T>> {
     const { options } = ctx
-    const data = await parseResponseBody(response, options.method, options.responseType)
+    const data = await parseResponseBody(
+      response,
+      options.method,
+      options.parseJson,
+      options.responseType,
+    )
 
-    if (options.throwHttpErrors && !response.ok) {
+    if (options.validateResponse) {
+      const verdict = options.validateResponse({
+        status: response.status,
+        headers: response.headers,
+        data,
+        response,
+      })
+      if (verdict instanceof Error) {
+        throw await runBeforeError(verdict, ctx)
+      }
+      if (verdict === false) {
+        const error = new HTTPError(response, ctx.request, data)
+        throw await runBeforeError(error, ctx)
+      }
+    } else if (options.throwHttpErrors && !response.ok) {
       const error = new HTTPError(response, ctx.request, data)
       throw await runBeforeError(error, ctx)
     }
@@ -83,6 +191,7 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
       statusText: response.statusText,
       headers: Object.fromEntries(response.headers),
       url: response.url || ctx.request.url,
+      type: response.type,
       raw: response,
     }
   }
@@ -95,15 +204,37 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
     return current
   }
 
+  function callable<T>(input: string, init: MisinaRequestInit): MisinaResponsePromise<T> {
+    return catchable(request<T>(input, init)) as MisinaResponsePromise<T>
+  }
+
+  function bind(method: HttpMethod) {
+    return <T = unknown>(url: string, init?: MisinaRequestInit): MisinaResponsePromise<T> =>
+      callable<T>(url, { ...init, method })
+  }
+
+  function bindWithBody(method: HttpMethod) {
+    return <T = unknown>(
+      url: string,
+      body?: unknown,
+      init?: MisinaRequestInit,
+    ): MisinaResponsePromise<T> => callable<T>(url, { ...init, method, body })
+  }
+
   const misina: Misina = {
-    request,
-    get: (url, init) => request(url, { ...init, method: "GET" }),
-    post: (url, body, init) => request(url, { ...init, method: "POST", body }),
-    put: (url, body, init) => request(url, { ...init, method: "PUT", body }),
-    patch: (url, body, init) => request(url, { ...init, method: "PATCH", body }),
-    delete: (url, init) => request(url, { ...init, method: "DELETE" }),
-    head: (url, init) => request(url, { ...init, method: "HEAD" }),
-    options: (url, init) => request(url, { ...init, method: "OPTIONS" }),
+    extend: (input) => {
+      const child = typeof input === "function" ? input(defaults) : input
+      return createMisina(mergeOptions(defaults, child))
+    },
+    request: <T = unknown>(input: string, init?: MisinaRequestInit) =>
+      callable<T>(input, init ?? {}),
+    get: bind("GET"),
+    post: bindWithBody("POST"),
+    put: bindWithBody("PUT"),
+    patch: bindWithBody("PATCH"),
+    delete: bind("DELETE"),
+    head: bind("HEAD"),
+    options: bind("OPTIONS"),
   }
 
   return misina
@@ -116,23 +247,34 @@ function resolveOptions(
 ): MisinaResolvedOptions {
   const method = (init.method ?? "GET") as HttpMethod
   const baseURL = init.baseURL ?? defaults.baseURL
+  const allowAbsoluteUrls = init.allowAbsoluteUrls ?? defaults.allowAbsoluteUrls ?? true
   const headers = mergeHeaders(defaults.headers, init.headers)
-  const url = appendQuery(resolveUrl(input, baseURL), init.query)
+  const url = appendQuery(resolveUrl(input, baseURL, allowAbsoluteUrls), init.query)
 
   const body = METHODS_WITHOUT_BODY.includes(method) ? undefined : init.body
 
   return {
     url,
+    allowAbsoluteUrls,
     method,
     headers,
     body,
     query: init.query,
     baseURL,
-    timeout: init.timeout ?? defaults.timeout,
+    timeout: init.timeout ?? defaults.timeout ?? DEFAULT_TIMEOUT,
+    totalTimeout: init.totalTimeout ?? defaults.totalTimeout ?? false,
     signal: init.signal ?? defaults.signal,
     responseType: init.responseType ?? defaults.responseType,
     hooks: mergeHooks(defaults.hooks, init.hooks),
+    retry: resolveRetry(init.retry, resolveRetry(defaults.retry)),
+    redirect: init.redirect ?? defaults.redirect ?? "manual",
+    redirectSafeHeaders: init.redirectSafeHeaders ?? defaults.redirectSafeHeaders,
+    redirectMaxCount: init.redirectMaxCount ?? defaults.redirectMaxCount ?? 5,
+    redirectAllowDowngrade: init.redirectAllowDowngrade ?? defaults.redirectAllowDowngrade ?? false,
     throwHttpErrors: init.throwHttpErrors ?? defaults.throwHttpErrors ?? true,
+    validateResponse: init.validateResponse ?? defaults.validateResponse,
+    parseJson: init.parseJson ?? defaults.parseJson ?? JSON.parse,
+    stringifyJson: init.stringifyJson ?? defaults.stringifyJson ?? JSON.stringify,
   }
 }
 
@@ -146,20 +288,64 @@ function mergeHeaders(
   return out
 }
 
-function buildRequest(options: MisinaResolvedOptions): Request {
+function buildRequest(
+  options: MisinaResolvedOptions,
+  totalSignal: AbortSignal | undefined,
+): Request {
   const headers = { ...options.headers }
   const method = options.method
   const init: RequestInit = {
     method,
     headers,
-    signal: options.signal,
+    signal: composeSignals([options.signal, totalSignal]),
   }
 
   if (isPayloadMethod(method) && options.body !== undefined) {
-    const serialized = serializeBody(options.body, headers)
+    const serialized = serializeBody(options.body, headers, options.stringifyJson)
     if (serialized !== undefined) init.body = serialized
     init.headers = headers
   }
 
   return new Request(options.url, init)
+}
+
+function buildAttemptSignal(
+  options: MisinaResolvedOptions,
+  totalSignal: AbortSignal | undefined,
+): AbortSignal | undefined {
+  const signals: (AbortSignal | undefined)[] = [options.signal, totalSignal]
+  if (options.timeout !== false && options.timeout > 0) {
+    signals.push(timeoutSignal(options.timeout))
+  }
+  return composeSignals(signals)
+}
+
+function withSignal(request: Request, signal: AbortSignal | undefined): Request {
+  if (!signal) return request
+  return new Request(request, { signal })
+}
+
+function computeDeadline(totalTimeout: number | false): number | undefined {
+  if (!totalTimeout || totalTimeout <= 0) return undefined
+  return Date.now() + totalTimeout
+}
+
+function deadlineSignal(deadline: number): AbortSignal {
+  const remaining = deadline - Date.now()
+  return timeoutSignal(Math.max(0, remaining))
+}
+
+function mapTransportError(cause: unknown, signal: AbortSignal | undefined, url: string): Error {
+  if (cause instanceof Error) {
+    if (cause.name === "TimeoutError" || isOurTimeoutAbort(signal)) {
+      return new TimeoutError(0, { cause })
+    }
+    if (cause.name === "AbortError") {
+      return cause
+    }
+  }
+  if (isRawNetworkError(cause)) {
+    return new NetworkError(`Network request to ${url} failed`, { cause })
+  }
+  return cause as Error
 }

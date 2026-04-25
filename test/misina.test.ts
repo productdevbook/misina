@@ -281,7 +281,7 @@ describe("createMisina — errors", () => {
       },
     }))()
 
-    const m = createMisina({ driver })
+    const m = createMisina({ driver, retry: 0 })
 
     try {
       await m.get("https://example.test/")

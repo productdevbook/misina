@@ -9,6 +9,8 @@ export { createMisina } from "./misina.ts"
 
 export { defineDriver } from "./driver/_define.ts"
 
+export { replaceOption } from "./_merge.ts"
+
 export {
   HTTPError,
   isHTTPError,
@@ -23,8 +25,10 @@ export {
 export type {
   AfterResponseHook,
   BeforeErrorHook,
+  BeforeRedirectHook,
   BeforeRequestHook,
   BeforeRetryHook,
+  CatchMatcher,
   HttpMethod,
   InitHook,
   MaybeArray,
@@ -37,5 +41,9 @@ export type {
   MisinaRequestInit,
   MisinaResolvedOptions,
   MisinaResponse,
+  MisinaResponsePromise,
+  ResolvedHooks,
+  ResolvedRetry,
   ResponseType,
+  RetryOptions,
 } from "./types.ts"

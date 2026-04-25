@@ -49,6 +49,10 @@
     "./driver/mock": {
       "types": "./dist/driver/mock.d.mts",
       "default": "./dist/driver/mock.mjs"
+    },
+    "./test": {
+      "types": "./dist/test/index.d.mts",
+      "default": "./dist/test/index.mjs"
     }
   },
   "scripts": {
