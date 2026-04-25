@@ -1,0 +1,72 @@
+{
+  "name": "misina",
+  "version": "0.0.1",
+  "private": false,
+  "description": "Driver-based TypeScript HTTP client — fetch, retry, cache, hooks. Zero-deps core; works on Node, Bun, Deno, Cloudflare Workers, and the browser.",
+  "keywords": [
+    "fetch",
+    "http",
+    "http-client",
+    "request",
+    "ofetch",
+    "axios",
+    "ky",
+    "got",
+    "retry",
+    "interceptor",
+    "hooks",
+    "driver",
+    "driver-pattern",
+    "esm",
+    "typescript",
+    "zero-dependencies"
+  ],
+  "homepage": "https://github.com/productdevbook/misina#readme",
+  "bugs": "https://github.com/productdevbook/misina/issues",
+  "license": "MIT",
+  "author": "productdevbook <hi@productdevbook.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/productdevbook/misina.git"
+  },
+  "funding": "https://github.com/sponsors/productdevbook",
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "scripts": {
+    "build": "obuild",
+    "dev": "vitest",
+    "lint": "oxlint . && oxfmt --check .",
+    "lint:fix": "oxlint . --fix && oxfmt .",
+    "fmt": "oxfmt .",
+    "test": "pnpm lint && pnpm typecheck && vitest run",
+    "typecheck": "tsgo --noEmit",
+    "release": "pnpm test && pnpm build && bumpp --commit --tag --push --all",
+    "prepack": "pnpm build"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "@typescript/native-preview": "7.0.0-dev.20260316.1",
+    "@vitest/coverage-v8": "^4.1.5",
+    "bumpp": "^11.0.1",
+    "obuild": "^0.4.33",
+    "oxfmt": "^0.46.0",
+    "oxlint": "^1.61.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.5"
+  },
+  "engines": {
+    "node": ">=20.11.1"
+  },
+  "packageManager": "pnpm@10.33.2"
+}
