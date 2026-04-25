@@ -2,9 +2,17 @@
   "name": "misina",
   "version": "0.0.1",
   "private": false,
-  "description": "Driver-based TypeScript HTTP client — fetch, retry, cache, hooks. Zero-deps core; works on Node, Bun, Deno, Cloudflare Workers, and the browser.",
+  "description": "Driver-based, zero-dependency, fetch-first TypeScript HTTP client. Hooks, retry, redirect security, cache (RFC 9111), cookie jar (RFC 6265), Idempotency-Key on retry, problem+json (RFC 9457), circuit breaker, SSE/NDJSON, OpenAPI types. Node ≥ 22, Bun, Deno, Cloudflare Workers, browsers.",
   "keywords": [
+    "abortsignal",
     "axios",
+    "browser",
+    "bun",
+    "cache",
+    "circuit-breaker",
+    "cloudflare-workers",
+    "cookies",
+    "deno",
     "driver",
     "driver-pattern",
     "esm",
@@ -13,12 +21,26 @@
     "hooks",
     "http",
     "http-client",
+    "idempotency",
     "interceptor",
     "ky",
+    "node",
     "ofetch",
+    "openapi",
+    "paginate",
+    "problem-details",
     "request",
     "retry",
+    "rfc-6265",
+    "rfc-7807",
+    "rfc-9111",
+    "rfc-9457",
+    "sse",
+    "standard-schema",
+    "streaming",
+    "tree-shakeable",
     "typescript",
+    "wretch",
     "zero-dependencies"
   ],
   "homepage": "https://github.com/productdevbook/misina#readme",
@@ -113,5 +135,9 @@
   "engines": {
     "node": ">=22.11.0"
   },
-  "packageManager": "pnpm@10.33.2"
+  "packageManager": "pnpm@10.33.2",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
 }

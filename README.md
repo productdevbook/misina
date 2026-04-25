@@ -1,6 +1,6 @@
 <p align="center">
   <br>
-  <img src=".github/assets/cover.svg" alt="misina — Driver-based, zero-dependency TypeScript HTTP client" width="100%">
+  <img src="https://raw.githubusercontent.com/productdevbook/misina/main/.github/assets/cover.png" alt="misina — Driver-based, zero-dependency TypeScript HTTP client" width="100%">
   <br><br>
   <b style="font-size: 2em;">misina</b>
   <br><br>
