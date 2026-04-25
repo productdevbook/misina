@@ -349,6 +349,7 @@ function resolveOptions(
     onDownloadProgress: init.onDownloadProgress ?? defaults.onDownloadProgress,
     cache: init.cache ?? defaults.cache,
     credentials: init.credentials ?? defaults.credentials,
+    priority: init.priority ?? defaults.priority,
     idempotencyKey: init.idempotencyKey ?? defaults.idempotencyKey ?? false,
     next: init.next ?? defaults.next,
     redirect: init.redirect ?? defaults.redirect ?? "manual",
@@ -431,6 +432,9 @@ async function buildRequest(
   if (options.cache !== undefined) init.cache = options.cache
   if (options.credentials !== undefined) init.credentials = options.credentials
   if (options.next !== undefined) init.next = options.next
+  if (options.priority !== undefined) {
+    ;(init as RequestInit & { priority?: "high" | "low" | "auto" }).priority = options.priority
+  }
 
   if (isPayloadMethod(method) && options.body !== undefined) {
     const serialized = serializeBody(options.body, headers, options.stringifyJson)

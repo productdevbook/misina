@@ -214,6 +214,11 @@ export interface MisinaOptions {
    * Per draft-ietf-httpapi-idempotency-key. No competitor ships this today.
    */
   idempotencyKey?: false | "auto" | string | ((request: Request) => string)
+  /**
+   * `RequestInit.priority` — fetch priority hint. Pass-through to the
+   * underlying transport. Modern browsers and Workers honor this.
+   */
+  priority?: "high" | "low" | "auto"
   /** Standard `fetch` cache mode, passed through to runtime / Next.js. */
   cache?: RequestCache
   /** Standard `fetch` credentials mode. Only sent when explicitly set. */
@@ -275,6 +280,7 @@ export interface MisinaResolvedOptions {
   onDownloadProgress: ProgressCallback | undefined
   cache: RequestCache | undefined
   credentials: RequestCredentials | undefined
+  priority: "high" | "low" | "auto" | undefined
   idempotencyKey: false | "auto" | string | ((request: Request) => string)
   next: { revalidate?: number | false; tags?: string[] } | undefined
   redirect: "manual" | "follow" | "error"
