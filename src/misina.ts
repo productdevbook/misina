@@ -322,15 +322,23 @@ function mergeHeaders(
   return out
 }
 
+function hasControlChar(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i)
+    if (code === 13 || code === 10 || code === 0) return true
+  }
+  return false
+}
+
 function validateHeaderName(name: string): string {
-  if (/[\r\n\0]/.test(name)) {
+  if (hasControlChar(name)) {
     throw new Error(`misina: invalid header name (control character): ${JSON.stringify(name)}`)
   }
   return name.toLowerCase()
 }
 
 function validateHeaderValue(value: string): string {
-  if (/[\r\n\0]/.test(value)) {
+  if (hasControlChar(value)) {
     throw new Error("misina: invalid header value (control character — request smuggling guard)")
   }
   return value

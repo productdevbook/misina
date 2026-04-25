@@ -87,7 +87,8 @@
     "fmt": "oxfmt .",
     "test": "pnpm lint && pnpm typecheck && vitest run",
     "typecheck": "tsgo --noEmit",
-    "release": "pnpm test && pnpm build && bumpp --commit --tag --push --all",
+    "bundle-budget": "node scripts/bundle-budget.mjs",
+    "release": "pnpm test && pnpm build && pnpm bundle-budget && bumpp --commit --tag --push --all",
     "prepack": "pnpm build"
   },
   "devDependencies": {
