@@ -47,6 +47,9 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
 
     for (const initHook of options.hooks.init) initHook(options)
 
+    // Honor an already-aborted user signal before any driver/hook runs.
+    if (options.signal?.aborted) throw abortReasonAsError(options.signal)
+
     await applyDefer(options, defaults, init)
 
     const totalDeadline = computeDeadline(options.totalTimeout)
@@ -92,6 +95,11 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
       if (attempt > 0) {
         const delay = calculateRetryDelay(retry, attempt, lastResponse)
         await delayMs(delay, totalSignal ?? options.signal)
+
+        // delayMs returns when the signal aborts; surface that as the rejection
+        // instead of letting another driver attempt go out.
+        if (options.signal?.aborted) throw abortReasonAsError(options.signal)
+        if (totalSignal?.aborted) throw abortReasonAsError(totalSignal)
 
         for (const hook of options.hooks.beforeRetry) {
           const out = await hook(ctx)
@@ -474,6 +482,16 @@ async function applyDefer(
 
   // Re-resolve URL in case headers changed query/baseURL semantics
   // (we don't change url after defer for now — defer is for headers/timing primarily)
+}
+
+function abortReasonAsError(signal: AbortSignal): Error {
+  const reason = signal.reason as unknown
+  if (reason instanceof Error) return reason
+  const error = new DOMException(
+    typeof reason === "string" ? reason : "The operation was aborted",
+    "AbortError",
+  )
+  return error
 }
 
 function mapTransportError(
