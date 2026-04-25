@@ -148,10 +148,20 @@ export async function validateSchema<T>(
 ): Promise<T> {
   const result = await schema["~standard"].validate(value)
   if ("issues" in result && result.issues) {
-    const error = new SchemaValidationError("Schema validation failed", result.issues)
-    throw error
+    throw new SchemaValidationError(formatSchemaMessage(result.issues), result.issues)
   }
   return (result as { value: T }).value
+}
+
+function formatSchemaMessage(
+  issues: ReadonlyArray<{ message: string; path?: ReadonlyArray<PropertyKey> }>,
+): string {
+  if (issues.length === 0) return "Schema validation failed"
+  const head = issues[0]
+  if (!head) return "Schema validation failed"
+  const where = head.path && head.path.length > 0 ? ` at ${head.path.join(".")}` : ""
+  const more = issues.length > 1 ? ` (+${issues.length - 1} more)` : ""
+  return `Schema validation failed${where}: ${head.message}${more}`
 }
 
 export interface StandardSchemaV1<I = unknown, O = unknown> {
