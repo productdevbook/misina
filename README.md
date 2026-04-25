@@ -61,8 +61,11 @@
 - **Streaming** — built-in SSE (WHATWG HTML §9.2 compliant) and NDJSON helpers.
 - **HTTP cache** — RFC 9111 compliant: `Cache-Control: no-store` / `max-age`, ETag / Last-Modified revalidation, `Vary` per-variant keying.
 - **Cookie jar** — RFC 6265 compliant: domain match check, Path matching, Secure flag, Max-Age / Expires.
-- **359 tests** across 49 files, exhaustively covering specs and edge cases.
-- **Subpath helpers**: `auth`, `cache`, `cookie`, `dedupe`, `paginate`, `stream`, `test`.
+- **394 tests** across 54 files, exhaustively covering specs and edge cases.
+- **Subpath helpers**: `auth`, `breaker`, `cache`, `cookie`, `dedupe`, `paginate`, `stream`, `test`.
+- **Idempotency-Key on retry** (RFC draft) — `idempotencyKey: 'auto'` sends a `crypto.randomUUID()` for retried mutations. No competitor ships this.
+- **RFC 9457 problem+json** parsed onto `HTTPError.problem` automatically.
+- **Circuit breaker** (`misina/breaker`) — Polly-shaped state machine, zero deps.
 
 ## Install
 

@@ -13,6 +13,29 @@ EventStream, RFC 9110 / 9111 / 8288 / 6265, and the latest merged PRs in
 ofetch, ky, and axios. Every pass added regression tests; total test
 count climbed from 18 → 359 across 49 files.
 
+Recent passes (38-44) — modernization + new features:
+
+- **Runtime baseline raised** to Node ≥ 22.11 / Bun ≥ 1.2 / Deno ≥ 2.0 /
+  Baseline 2024 browsers. Node 20 EOL'd April 2026. Native
+  `AbortSignal.any`, `AbortSignal.timeout`, `Headers.getSetCookie()` —
+  no polyfills. `_signal.mjs` shrunk by 58%.
+- **UTF-8 safe Basic auth** — `withBasic` now correctly encodes
+  non-Latin1 credentials (Turkish ş/ı/ç, etc).
+- **`idempotencyKey: 'auto'`** — sets `crypto.randomUUID()` as the
+  `Idempotency-Key` on retried POST/PATCH/DELETE so servers can
+  deduplicate. The key pins to the original request and stays
+  identical across attempts. Per draft-ietf-httpapi-idempotency-key.
+- **RFC 9457 problem+json on `HTTPError`** — `application/problem+json`
+  is parsed and surfaced as `err.problem: { type, title, status, detail,
+  instance, ...extensions }`. The default error message now includes
+  `problem.detail` for immediate console legibility.
+- **`beforeRetry` may return a `Response`** — ky-style. Synthesize a
+  fallback / cached response and skip the retry network call entirely.
+- **`priority` passthrough** — `'high' | 'low' | 'auto'` forwarded to
+  the underlying `fetch()`.
+- **Circuit breaker subpath** `misina/breaker` — Polly/cockatiel
+  state machine (closed → open → half-open → closed), no runtime dep.
+
 Recent passes (22-37):
 
 - **Pre-flight + retry-loop abort checks** — an already-aborted user
@@ -205,7 +228,7 @@ HTTP client.
 
 #### Quality
 
-- 359 tests passing across 49 files.
+- 394 tests passing across 54 files.
 - Lint clean (oxlint + oxfmt), typecheck clean (`tsgo --noEmit` with `--isolatedDeclarations`).
 - Bundle budget gate: core public surface 418 B, engine 12 KB, every subpath ≤ 6 KB.
 - CI matrix: Node 20 / 22 / 24, Bun, Deno smoke test.
