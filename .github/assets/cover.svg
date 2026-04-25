@@ -106,11 +106,4 @@
     </g>
   </g>
 
-  <!-- bottom-right brand mark -->
-  <g transform="translate(1010, 535)">
-    <circle r="10" fill="#06b6d4"/>
-    <text x="26" y="6"
-          font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, monospace"
-          font-size="17" font-weight="600" fill="#cbd5e1" letter-spacing="2">productdevbook</text>
-  </g>
 </svg>
