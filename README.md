@@ -39,6 +39,10 @@
   - [misina/dedupe](#misinadedupe)
   - [misina/paginate](#misinapaginate)
   - [misina/stream](#misinastream)
+  - [misina/breaker](#misinabreaker)
+- [Idempotency-Key](#idempotency-key)
+- [RFC 9457 problem+json](#rfc-9457-problemjson)
+- [Fetch Priority](#fetch-priority)
 - [Progress Events](#progress-events)
 - [defer — Late-Binding Config](#defer--late-binding-config)
 - [Type-Safe Path Generics](#type-safe-path-generics)
@@ -412,6 +416,120 @@ for await (const item of ndjsonStream<Item>(res2.raw)) {
 }
 ```
 
+### misina/breaker
+
+Polly / cockatiel-shaped circuit breaker. State machine:
+
+```
+closed ──[N failures within windowMs]──▶ open
+open   ──[wait halfOpenAfter]──▶ half-open  (one probe allowed)
+half-open ──[probe ok]──▶ closed
+half-open ──[probe fails]──▶ open  (fresh timer)
+```
+
+```ts
+import { withCircuitBreaker, CircuitOpenError } from "misina/breaker"
+
+const api = withCircuitBreaker(misina, {
+  failureThreshold: 5, // trip after 5 failures
+  windowMs: 30_000, // sliding window
+  halfOpenAfter: 10_000, // ms before letting one probe through
+  // isFailure defaults to: any thrown error or 5xx HTTPError.
+  // 4xx is intentionally NOT counted (client mistake, not service degradation).
+})
+
+try {
+  await api.get("/users/42")
+} catch (err) {
+  if (err instanceof CircuitOpenError) {
+    console.log("upstream cooked — retry in", err.retryAfter, "ms")
+  }
+}
+
+// Inspect / control the breaker:
+api.breaker.state() // 'closed' | 'open' | 'half-open'
+api.breaker.trip() // force open (e.g. external monitoring signal)
+api.breaker.reset() // force closed
+```
+
+No major fetch client (ofetch, ky, axios, got, wretch) ships a built-in
+breaker — users had to wrap with `cockatiel`/`opossum`. This subpath fits
+naturally with misina's driver pattern and adds zero deps.
+
+## Idempotency-Key
+
+Auto-generate `Idempotency-Key` on retried mutations so the server can
+deduplicate. Per [draft-ietf-httpapi-idempotency-key-header](https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/).
+
+```ts
+const api = createMisina({
+  idempotencyKey: "auto", // crypto.randomUUID() per logical call
+  retry: { limit: 3, methods: ["POST"] },
+})
+
+await api.post("/charges", { amount: 100 })
+// First attempt → Idempotency-Key: 9b1d…
+// All retries → same key. Server safely deduplicates the side-effect.
+```
+
+`'auto'` only fires for non-idempotent methods (POST/PATCH/DELETE) when
+`retry > 0`. GET/HEAD/OPTIONS/PUT skip it (already idempotent by spec).
+A user-supplied `Idempotency-Key` header always wins.
+
+```ts
+// String form — useful for an externally-supplied id (Stripe-style):
+createMisina({ idempotencyKey: requestId })
+
+// Function form — runs once per logical request, not per attempt:
+createMisina({ idempotencyKey: (req) => `order-${orderId}` })
+
+// Disabled (default):
+createMisina({ idempotencyKey: false })
+```
+
+No competing client ships this today.
+
+## RFC 9457 problem+json
+
+Servers signal application errors with `Content-Type: application/problem+json`
+([RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html), formerly RFC 7807).
+Misina lifts the structured shape onto `HTTPError.problem` automatically.
+
+```ts
+try {
+  await api.post("/charge", { amount: 100 })
+} catch (err) {
+  if (isHTTPError(err) && err.problem) {
+    console.log(err.problem.type) // URI ref to the problem type
+    console.log(err.problem.title) // short summary
+    console.log(err.problem.status) // echoed status
+    console.log(err.problem.detail) // specific occurrence
+    console.log(err.problem.instance) // URI ref to this occurrence
+    console.log(err.problem.balance) // extension fields preserved
+  }
+}
+```
+
+The default `error.message` includes `problem.detail` (or title fallback)
+so console output is immediately useful:
+
+```
+HTTPError: Request failed with status 402: Your account balance is $0.00.
+```
+
+## Fetch Priority
+
+Pass-through for [`RequestInit.priority`](https://web.dev/articles/fetch-priority)
+— hint to the browser/runtime about the urgency of a request.
+
+```ts
+await api.get("/critical", { priority: "high" })
+await api.get("/prefetch", { priority: "low" })
+```
+
+Honored by Chromium browsers, Firefox 132+, Safari 17.4+, and Cloudflare
+Workers — completes the Baseline 2024 set.
+
 ## Progress Events
 
 ```ts
@@ -511,7 +629,37 @@ Throws `SchemaValidationError` with `.issues` on mismatch.
 - **`axios`** — Fetch-first, ESM-only, no XHR fallback in core, no CommonJS dual-build pain. No interceptor mutation surprises.
 - **`got`** — got is Node-only; misina runs everywhere. Pagination + cookie jar borrow got's design without the Node dependency tax.
 - **`wretch`** — flat options object instead of chainable builder, but `.onError(404, ...)` borrows wretch's catcher ergonomics.
+- **None of the above** ship `idempotencyKey: 'auto'`, RFC 9457 problem+json parsing, or a built-in circuit breaker.
+
+## Credits
+
+misina stands on the shoulders of the modern fetch ecosystem. The design
+borrows liberally from prior art — credit where it's due:
+
+- **[ofetch](https://github.com/unjs/ofetch)** (unjs) — defer pattern, hook surface shape.
+- **[ky](https://github.com/sindresorhus/ky)** (Sindre Sorhus) — `.extend()` ergonomics, `beforeRetry` returning a `Response`, response timeout semantics, `parseJson(text, ctx)` (PR #849).
+- **[axios](https://github.com/axios/axios)** — request/response interceptor concept; `paramsSerializer` and the option-bag API surface.
+- **[got](https://github.com/sindresorhus/got)** — pagination iterator design, cookie-jar interface contract.
+- **[wretch](https://github.com/elbywan/wretch)** — `.onError(404, fn)` status catcher ergonomics.
+- **[openapi-fetch / openapi-typescript](https://openapi-ts.dev/)** (drwpow) — the `Paths` shape that the `misina/openapi` adapter targets.
+- **[cockatiel](https://github.com/connor4312/cockatiel)** (connor4312) and **Microsoft Polly** — circuit-breaker state-machine shape used in `misina/breaker`.
+- **[Standard Schema](https://standardschema.dev)** (zod / valibot / arktype authors) — the `~standard.validate` contract.
+- **[unstorage](https://github.com/unjs/unstorage)** and **[unemail](https://github.com/productdevbook/unemail)** — the `defineDriver()` pattern.
+
+Specs and standards consulted along the way:
+
+- **WHATWG Fetch** + **AbortSignal** + **HTML §9.2 (EventStream)**
+- **RFC 9110** (HTTP semantics, redirects)
+- **RFC 9111** (HTTP caching)
+- **RFC 8288** (Link header)
+- **RFC 6265** (Cookies)
+- **RFC 9457** (Problem details for HTTP APIs)
+- **draft-ietf-httpapi-idempotency-key-header**
+
+Built by **[productdevbook](https://github.com/productdevbook)** and
+**[Claude Code](https://claude.com/claude-code)** — 44 audit passes, 394
+regression tests, zero deps.
 
 ## License
 
-MIT © productdevbook
+MIT © [productdevbook](https://github.com/productdevbook)
