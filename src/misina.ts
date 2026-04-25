@@ -40,6 +40,7 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
     init: MisinaRequestInit = {},
   ): Promise<MisinaResponse<T>> {
     const options = resolveOptions(input, init, defaults)
+    const startedAt = performance.now()
 
     for (const initHook of options.hooks.init) initHook(options)
 
@@ -49,7 +50,7 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
     const totalSignal = totalDeadline ? deadlineSignal(totalDeadline) : undefined
 
     let request = await buildRequest(options, totalSignal)
-    const ctx: MisinaContext = { request, options, attempt: 0 }
+    const ctx: MisinaContext = { request, options, attempt: 0, startedAt }
 
     for (const hook of options.hooks.beforeRequest) {
       const out = await hook(ctx)
@@ -94,6 +95,7 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
       let response: Response
       try {
         response = await followRedirects(driver, attemptRequest, options, ctx)
+        ctx.responseStartedAt = performance.now()
       } catch (cause) {
         const error = mapTransportError(cause, attemptSignal, attemptRequest.url)
         lastError = error
@@ -192,6 +194,7 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
       throw await runBeforeError(error, ctx)
     }
 
+    const end = performance.now()
     return {
       data: data as T,
       status: response.status,
@@ -199,6 +202,12 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
       headers: Object.fromEntries(response.headers),
       url: response.url || ctx.request.url,
       type: response.type,
+      timings: {
+        start: ctx.startedAt,
+        responseStart: ctx.responseStartedAt ?? end,
+        end,
+        total: end - ctx.startedAt,
+      },
       raw: response,
     }
   }
@@ -289,6 +298,9 @@ function resolveOptions(
     ],
     onUploadProgress: init.onUploadProgress ?? defaults.onUploadProgress,
     onDownloadProgress: init.onDownloadProgress ?? defaults.onDownloadProgress,
+    cache: init.cache ?? defaults.cache,
+    credentials: init.credentials ?? defaults.credentials,
+    next: init.next ?? defaults.next,
     redirect: init.redirect ?? defaults.redirect ?? "manual",
     redirectSafeHeaders: init.redirectSafeHeaders ?? defaults.redirectSafeHeaders,
     redirectMaxCount: init.redirectMaxCount ?? defaults.redirectMaxCount ?? 5,
@@ -305,9 +317,23 @@ function mergeHeaders(
   b: Record<string, string> | undefined,
 ): Record<string, string> {
   const out: Record<string, string> = {}
-  if (a) for (const [k, v] of Object.entries(a)) out[k.toLowerCase()] = v
-  if (b) for (const [k, v] of Object.entries(b)) out[k.toLowerCase()] = v
+  if (a) for (const [k, v] of Object.entries(a)) out[validateHeaderName(k)] = validateHeaderValue(v)
+  if (b) for (const [k, v] of Object.entries(b)) out[validateHeaderName(k)] = validateHeaderValue(v)
   return out
+}
+
+function validateHeaderName(name: string): string {
+  if (/[\r\n\0]/.test(name)) {
+    throw new Error(`misina: invalid header name (control character): ${JSON.stringify(name)}`)
+  }
+  return name.toLowerCase()
+}
+
+function validateHeaderValue(value: string): string {
+  if (/[\r\n\0]/.test(value)) {
+    throw new Error("misina: invalid header value (control character — request smuggling guard)")
+  }
+  return value
 }
 
 async function buildRequest(
@@ -316,11 +342,17 @@ async function buildRequest(
 ): Promise<Request> {
   const headers = { ...options.headers }
   const method = options.method
-  const init: RequestInit & { duplex?: "half" } = {
+  const init: RequestInit & {
+    duplex?: "half"
+    next?: { revalidate?: number | false; tags?: string[] }
+  } = {
     method,
     headers,
     signal: composeSignals([options.signal, totalSignal]),
   }
+  if (options.cache !== undefined) init.cache = options.cache
+  if (options.credentials !== undefined) init.credentials = options.credentials
+  if (options.next !== undefined) init.next = options.next
 
   if (isPayloadMethod(method) && options.body !== undefined) {
     const serialized = serializeBody(options.body, headers, options.stringifyJson)

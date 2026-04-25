@@ -13,6 +13,10 @@ export interface MisinaContext {
   response?: Response
   options: MisinaResolvedOptions
   attempt: number
+  /** performance.now() at the start of this lifecycle. */
+  startedAt: number
+  /** performance.now() when the first response was received. */
+  responseStartedAt?: number
   error?: unknown
 }
 
@@ -180,6 +184,15 @@ export interface MisinaOptions {
   onUploadProgress?: ProgressCallback
   /** Fired as the response body is consumed. */
   onDownloadProgress?: ProgressCallback
+  /** Standard `fetch` cache mode, passed through to runtime / Next.js. */
+  cache?: RequestCache
+  /** Standard `fetch` credentials mode. Only sent when explicitly set. */
+  credentials?: RequestCredentials
+  /**
+   * Next.js `fetch` extension. Pass-through to the runtime; no behavior in
+   * misina itself. Use module augmentation to refine the type for Next.
+   */
+  next?: { revalidate?: number | false; tags?: string[] } & Record<string, unknown>
 }
 
 export interface ProgressEvent {
@@ -230,6 +243,9 @@ export interface MisinaResolvedOptions {
   defer: DeferCallback[]
   onUploadProgress: ProgressCallback | undefined
   onDownloadProgress: ProgressCallback | undefined
+  cache: RequestCache | undefined
+  credentials: RequestCredentials | undefined
+  next: { revalidate?: number | false; tags?: string[] } | undefined
   redirect: "manual" | "follow" | "error"
   redirectSafeHeaders: string[] | undefined
   redirectMaxCount: number
@@ -255,7 +271,20 @@ export interface MisinaResponse<T = unknown> {
   url: string
   /** Web Fetch ResponseType — basic / cors / opaque / opaqueredirect / error / default. */
   type: Response["type"]
+  /** Wall-clock timings for the request lifecycle. */
+  timings: ResponseTimings
   raw: Response
+}
+
+export interface ResponseTimings {
+  /** performance.now() at the start of the request. */
+  start: number
+  /** performance.now() when the response object was first received. */
+  responseStart: number
+  /** performance.now() when the response body was fully consumed. */
+  end: number
+  /** End - start (ms). */
+  total: number
 }
 
 export type CatchMatcher = number | number[] | string | ((error: unknown) => boolean)
