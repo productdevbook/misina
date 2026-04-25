@@ -358,9 +358,26 @@ function mergeHeaders(
   b: Record<string, string> | undefined,
 ): Record<string, string> {
   const out: Record<string, string> = {}
-  if (a) for (const [k, v] of Object.entries(a)) out[validateHeaderName(k)] = validateHeaderValue(v)
-  if (b) for (const [k, v] of Object.entries(b)) out[validateHeaderName(k)] = validateHeaderValue(v)
+  copyHeadersInto(out, a)
+  copyHeadersInto(out, b)
   return out
+}
+
+function copyHeadersInto(out: Record<string, string>, source: unknown): void {
+  if (source == null) return
+  // Allow Headers / [string,string][] / Record at the public boundary —
+  // value-undefined silently drops the key (so `{ auth: token ?? undefined }`
+  // doesn't blow up).
+  const entries: [string, unknown][] =
+    source instanceof Headers
+      ? [...source.entries()]
+      : Array.isArray(source)
+        ? (source as [string, unknown][])
+        : Object.entries(source as Record<string, unknown>)
+  for (const [k, v] of entries) {
+    if (v === undefined || v === null) continue
+    out[validateHeaderName(k)] = validateHeaderValue(String(v))
+  }
 }
 
 function hasControlChar(value: string): boolean {
