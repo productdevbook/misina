@@ -4,20 +4,20 @@
   "private": false,
   "description": "Driver-based TypeScript HTTP client — fetch, retry, cache, hooks. Zero-deps core; works on Node, Bun, Deno, Cloudflare Workers, and the browser.",
   "keywords": [
-    "fetch",
-    "http",
-    "http-client",
-    "request",
-    "ofetch",
     "axios",
-    "ky",
-    "got",
-    "retry",
-    "interceptor",
-    "hooks",
     "driver",
     "driver-pattern",
     "esm",
+    "fetch",
+    "got",
+    "hooks",
+    "http",
+    "http-client",
+    "interceptor",
+    "ky",
+    "ofetch",
+    "request",
+    "retry",
     "typescript",
     "zero-dependencies"
   ],
@@ -41,6 +41,14 @@
     ".": {
       "types": "./dist/index.d.mts",
       "default": "./dist/index.mjs"
+    },
+    "./driver/fetch": {
+      "types": "./dist/driver/fetch.d.mts",
+      "default": "./dist/driver/fetch.mjs"
+    },
+    "./driver/mock": {
+      "types": "./dist/driver/mock.d.mts",
+      "default": "./dist/driver/mock.mjs"
     }
   },
   "scripts": {
