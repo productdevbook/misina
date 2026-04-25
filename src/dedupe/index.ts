@@ -52,9 +52,11 @@ export function withDedupe(misina: Misina, opts: DedupeOptions = {}): Misina {
     tracked.catch(() => {})
     underlying
       .finally(() => {
-        // Hold the slot for the current microtask tick so synchronous concurrent
-        // callers all collapse onto this promise. Then free it for future calls.
-        queueMicrotask(() => inflight.delete(key))
+        // Free the slot the moment the underlying request settles. Concurrent
+        // callers that bind `existing` _before_ the request settles share the
+        // same promise; once it settles, sequential callers (after `await`)
+        // get a fresh request — which is what users expect.
+        inflight.delete(key)
       })
       .catch(() => {})
     inflight.set(key, tracked)
