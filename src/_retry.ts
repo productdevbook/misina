@@ -63,10 +63,13 @@ export function calculateRetryDelay(
 }
 
 function parseRetryAfter(response: Response): number | null {
-  const value = response.headers.get("retry-after") ?? response.headers.get("ratelimit-reset")
-  if (!value) return null
-  const seconds = Number(value)
-  if (!Number.isNaN(seconds)) return seconds * 1000
+  const raw = response.headers.get("retry-after") ?? response.headers.get("ratelimit-reset")
+  if (raw == null) return null
+  const value = raw.trim()
+  if (value === "") return null
+  // Number("") would be 0; we already filtered that. Allow only digit-only
+  // tokens to take the seconds path so "1.5e3" / "0x10" / "  " don't slip in.
+  if (/^\d+(?:\.\d+)?$/.test(value)) return Number(value) * 1000
   const date = Date.parse(value)
   if (!Number.isNaN(date)) return Math.max(0, date - Date.now())
   return null

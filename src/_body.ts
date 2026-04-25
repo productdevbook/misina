@@ -1,8 +1,18 @@
 /**
  * Decide if a method may carry a body. Used to gate body serialization.
+ *
+ * Per RFC 9110: GET / HEAD / OPTIONS / TRACE / CONNECT either don't take
+ * a body or it's discouraged enough that we drop it silently. DELETE may
+ * carry a body and is allowed.
  */
 export function isPayloadMethod(method: string): boolean {
-  return method !== "GET" && method !== "HEAD" && method !== "OPTIONS"
+  return (
+    method !== "GET" &&
+    method !== "HEAD" &&
+    method !== "OPTIONS" &&
+    method !== "TRACE" &&
+    method !== "CONNECT"
+  )
 }
 
 /**

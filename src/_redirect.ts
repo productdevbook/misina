@@ -64,6 +64,14 @@ export async function followRedirects(
     )
 
     const downgrade = shouldDowngradeToGet(response.status, current.method)
+    if (downgrade) {
+      // GET/HEAD shouldn't carry body-related headers; strip them so we don't
+      // confuse the downstream server with a content-type that has no body.
+      delete nextHeaders["content-type"]
+      delete nextHeaders["Content-Type"]
+      delete nextHeaders["content-length"]
+      delete nextHeaders["Content-Length"]
+    }
     const nextInit: RequestInit & { duplex?: "half" } = {
       method: downgrade ? "GET" : current.method,
       headers: nextHeaders,

@@ -53,8 +53,12 @@ function mergeHeaders(
   a: Record<string, string> | undefined,
   b: Record<string, string> | undefined,
 ): Record<string, string> {
-  const out: Record<string, string> = { ...a }
-  if (b) for (const [k, v] of Object.entries(b)) out[k] = v
+  // Case-insensitive: lowercased keys, last wins. Otherwise `{ Authorization }`
+  // and `{ authorization }` would coexist in the merged record and produce
+  // duplicate headers downstream.
+  const out: Record<string, string> = {}
+  if (a) for (const [k, v] of Object.entries(a)) out[k.toLowerCase()] = v
+  if (b) for (const [k, v] of Object.entries(b)) out[k.toLowerCase()] = v
   return out
 }
 

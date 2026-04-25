@@ -113,9 +113,21 @@ export function progressDownload(response: Response, callback: ProgressCallback)
         controller.close()
       } catch (err) {
         controller.error(err)
-      } finally {
+        // Release the upstream stream too so the underlying connection can be
+        // freed instead of waiting on a never-consumed body.
         reader.releaseLock()
+        try {
+          await body.cancel()
+        } catch {
+          // already cancelled / closed
+        }
+        return
       }
+      reader.releaseLock()
+    },
+    cancel(reason) {
+      // Caller cancelled the iterator — propagate to the upstream stream.
+      return body.cancel(reason)
     },
   })
 

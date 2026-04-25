@@ -27,7 +27,10 @@ import type {
   MisinaResponsePromise,
 } from "./types.ts"
 
-const METHODS_WITHOUT_BODY: HttpMethod[] = ["GET", "DELETE", "HEAD", "OPTIONS"]
+// Methods that never accept a request body. DELETE is intentionally absent —
+// per RFC 9110 a DELETE may carry a body, and several APIs (e.g. Elastic,
+// Stripe webhook deletion) require it.
+const METHODS_WITHOUT_BODY: HttpMethod[] = ["GET", "HEAD", "OPTIONS"]
 
 const DEFAULT_TIMEOUT = 10_000
 
@@ -97,7 +100,12 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
         response = await followRedirects(driver, attemptRequest, options, ctx)
         ctx.responseStartedAt = performance.now()
       } catch (cause) {
-        const error = mapTransportError(cause, attemptSignal, attemptRequest.url)
+        const error = mapTransportError(
+          cause,
+          attemptSignal,
+          attemptRequest.url,
+          options.timeout === false ? undefined : options.timeout,
+        )
         lastError = error
 
         if (await canRetryError(retry, ctx, error, attempt)) continue
@@ -121,10 +129,18 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
       }
 
       if (attempt < retry.limit && !response.ok && shouldRetryHttpError(retry, options, response)) {
-        const dummy = new HTTPError(response, ctx.request, undefined)
-        ctx.error = dummy
+        // Parse the body so shouldRetry / beforeRetry hooks can inspect ctx.error.data
+        const cloned = response.clone()
+        const data = await parseResponseBody(
+          cloned,
+          options.method,
+          options.parseJson,
+          options.responseType,
+        )
+        const httpError = new HTTPError(response, ctx.request, data)
+        ctx.error = httpError
         if (await passesShouldRetry(retry, ctx)) {
-          lastError = dummy
+          lastError = httpError
           continue
         }
       }
@@ -426,7 +442,7 @@ async function applyDefer(
 
     if (patch.headers) {
       for (const [k, v] of Object.entries(patch.headers)) {
-        options.headers[k.toLowerCase()] = v
+        options.headers[validateHeaderName(k)] = validateHeaderValue(v)
       }
     }
     if (patch.baseURL !== undefined) options.baseURL = patch.baseURL
@@ -443,10 +459,15 @@ async function applyDefer(
   // (we don't change url after defer for now — defer is for headers/timing primarily)
 }
 
-function mapTransportError(cause: unknown, signal: AbortSignal | undefined, url: string): Error {
+function mapTransportError(
+  cause: unknown,
+  signal: AbortSignal | undefined,
+  url: string,
+  timeout: number | undefined,
+): Error {
   if (cause instanceof Error) {
     if (cause.name === "TimeoutError" || isOurTimeoutAbort(signal)) {
-      return new TimeoutError(0, { cause })
+      return new TimeoutError(timeout ?? 0, { cause })
     }
     if (cause.name === "AbortError") {
       return cause

@@ -74,18 +74,21 @@ export function appendQuery(
   for (const [key, value] of Object.entries(query)) {
     if (value == null) continue
     if (Array.isArray(value)) {
+      // Drop null/undefined items inside arrays — same rule as top-level.
+      const items = value.filter((v): v is NonNullable<typeof v> => v != null)
+      if (items.length === 0) continue
       switch (arrayFormat) {
         case "repeat":
-          for (const v of value) u.searchParams.append(key, String(v))
+          for (const v of items) u.searchParams.append(key, String(v))
           break
         case "brackets":
-          for (const v of value) u.searchParams.append(`${key}[]`, String(v))
+          for (const v of items) u.searchParams.append(`${key}[]`, String(v))
           break
         case "comma":
-          u.searchParams.append(key, value.map(String).join(","))
+          u.searchParams.append(key, items.map(String).join(","))
           break
         case "indices":
-          value.forEach((v, i) => u.searchParams.append(`${key}[${i}]`, String(v)))
+          items.forEach((v, i) => u.searchParams.append(`${key}[${i}]`, String(v)))
           break
       }
     } else {
