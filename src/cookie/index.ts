@@ -1,0 +1,151 @@
+import type { Misina } from "../types.ts"
+
+export interface CookieJar {
+  getCookieString: (url: string) => string | Promise<string>
+  setCookie: (setCookieHeader: string, url: string) => void | Promise<void>
+}
+
+interface StoredCookie {
+  name: string
+  value: string
+  domain: string
+  path: string
+  expires?: number
+  secure?: boolean
+  httpOnly?: boolean
+  sameSite?: string
+}
+
+/**
+ * Zero-dep, in-memory cookie jar covering the 80% case (session cookies).
+ * Honors Domain, Path, Expires/Max-Age, Secure. Does not implement public-
+ * suffix-list checks or full RFC 6265 — that's a v2 concern.
+ */
+export class MemoryCookieJar implements CookieJar {
+  #cookies: StoredCookie[] = []
+
+  getCookieString(url: string): string {
+    const u = new URL(url)
+    const now = Date.now()
+    const out: string[] = []
+    for (const c of this.#cookies) {
+      if (c.expires != null && c.expires < now) continue
+      if (!domainMatches(u.hostname, c.domain)) continue
+      if (!pathMatches(u.pathname, c.path)) continue
+      if (c.secure && u.protocol !== "https:") continue
+      out.push(`${c.name}=${c.value}`)
+    }
+    return out.join("; ")
+  }
+
+  setCookie(setCookieHeader: string, url: string): void {
+    const cookie = parseSetCookie(setCookieHeader, url)
+    if (!cookie) return
+    this.#cookies = this.#cookies.filter(
+      (c) => !(c.name === cookie.name && c.domain === cookie.domain && c.path === cookie.path),
+    )
+    if (cookie.expires == null || cookie.expires > Date.now()) {
+      this.#cookies.push(cookie)
+    }
+  }
+
+  /** Inspect or seed the jar. Mostly useful in tests. */
+  get cookies(): readonly StoredCookie[] {
+    return this.#cookies
+  }
+}
+
+/**
+ * Wrap a Misina instance with a cookie jar. Adds a Cookie header on every
+ * request matching the URL; reads `Set-Cookie` from responses and stores them.
+ */
+export function withCookieJar(misina: Misina, jar: CookieJar): Misina {
+  return misina.extend({
+    hooks: {
+      beforeRequest: async (ctx) => {
+        const cookieString = await jar.getCookieString(ctx.request.url)
+        if (!cookieString) return
+        const headers = new Headers(ctx.request.headers)
+        const existing = headers.get("cookie")
+        headers.set("cookie", existing ? `${existing}; ${cookieString}` : cookieString)
+        return new Request(ctx.request, { headers })
+      },
+      afterResponse: async (ctx) => {
+        if (!ctx.response) return
+        // getSetCookie is the spec way; fall back to multi-header poll.
+        const headers = ctx.response.headers as Headers & { getSetCookie?: () => string[] }
+        const setCookies = headers.getSetCookie?.() ?? collectSetCookies(headers)
+        for (const sc of setCookies) {
+          await jar.setCookie(sc, ctx.request.url)
+        }
+      },
+    },
+  })
+}
+
+function collectSetCookies(headers: Headers): string[] {
+  const value = headers.get("set-cookie")
+  return value ? [value] : []
+}
+
+function parseSetCookie(header: string, url: string): StoredCookie | undefined {
+  const parts = header.split(";").map((p) => p.trim())
+  const first = parts.shift()
+  if (!first) return undefined
+  const eq = first.indexOf("=")
+  if (eq === -1) return undefined
+  const name = first.slice(0, eq).trim()
+  const value = first.slice(eq + 1).trim()
+  if (!name) return undefined
+
+  const u = new URL(url)
+  const cookie: StoredCookie = { name, value, domain: u.hostname, path: "/" }
+
+  for (const attr of parts) {
+    const [rawKey, ...rest] = attr.split("=")
+    const key = rawKey?.toLowerCase() ?? ""
+    const v = rest.join("=").trim()
+    switch (key) {
+      case "domain":
+        cookie.domain = v.startsWith(".") ? v.slice(1) : v
+        break
+      case "path":
+        cookie.path = v || "/"
+        break
+      case "expires": {
+        const t = Date.parse(v)
+        if (!Number.isNaN(t)) cookie.expires = t
+        break
+      }
+      case "max-age": {
+        const seconds = Number(v)
+        if (Number.isFinite(seconds)) cookie.expires = Date.now() + seconds * 1000
+        break
+      }
+      case "secure":
+        cookie.secure = true
+        break
+      case "httponly":
+        cookie.httpOnly = true
+        break
+      case "samesite":
+        cookie.sameSite = v.toLowerCase()
+        break
+    }
+  }
+  return cookie
+}
+
+function domainMatches(host: string, cookieDomain: string): boolean {
+  if (host === cookieDomain) return true
+  return host.endsWith("." + cookieDomain)
+}
+
+function pathMatches(requestPath: string, cookiePath: string): boolean {
+  if (cookiePath === requestPath) return true
+  if (requestPath.startsWith(cookiePath)) {
+    if (cookiePath.endsWith("/")) return true
+    if (requestPath.charAt(cookiePath.length) === "/") return true
+  }
+  return false
+}

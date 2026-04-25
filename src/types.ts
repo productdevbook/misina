@@ -165,7 +165,39 @@ export interface MisinaOptions {
   parseJson?: (text: string) => unknown
   /** Custom JSON serializer for request bodies. Default: JSON.stringify. */
   stringifyJson?: (value: unknown) => string
+  /** How arrays in `query` are serialized. Default: 'repeat'. */
+  arrayFormat?: ArrayFormat
+  /** Override query string serialization wholesale. */
+  paramsSerializer?: ParamsSerializer
+  /**
+   * Late-binding callbacks evaluated *after* init hooks but *before*
+   * beforeRequest. Each returns a partial options object that is shallow-merged
+   * (headers/query merged) into the resolved options. Use for per-request
+   * tokens, timestamps, or anything you don't have at instance creation time.
+   */
+  defer?: MaybeArray<DeferCallback>
+  /** Fired as the request body is sent to the network in 64 KB chunks. */
+  onUploadProgress?: ProgressCallback
+  /** Fired as the response body is consumed. */
+  onDownloadProgress?: ProgressCallback
 }
+
+export interface ProgressEvent {
+  loaded: number
+  total: number | undefined
+  percent: number
+  bytesPerSecond: number
+}
+
+export type ProgressCallback = (event: ProgressEvent) => void
+
+export type DeferCallback = (
+  options: MisinaResolvedOptions,
+) => Partial<MisinaOptions> | undefined | Promise<Partial<MisinaOptions> | undefined>
+
+export type ArrayFormat = "repeat" | "brackets" | "comma" | "indices"
+
+export type ParamsSerializer = (params: Record<string, unknown>) => string
 
 /**
  * Per-request init — superset of `MisinaOptions` plus URL/method/body knobs.
@@ -173,7 +205,7 @@ export interface MisinaOptions {
 export interface MisinaRequestInit extends MisinaOptions {
   method?: HttpMethod
   body?: unknown
-  query?: Record<string, unknown>
+  query?: Record<string, unknown> | URLSearchParams | string
 }
 
 /**
@@ -185,7 +217,9 @@ export interface MisinaResolvedOptions {
   method: HttpMethod
   headers: Record<string, string>
   body?: unknown
-  query?: Record<string, unknown>
+  query?: Record<string, unknown> | URLSearchParams | string
+  arrayFormat: ArrayFormat
+  paramsSerializer: ParamsSerializer | undefined
   baseURL?: string
   timeout: number | false
   totalTimeout: number | false
@@ -193,6 +227,9 @@ export interface MisinaResolvedOptions {
   responseType?: ResponseType
   hooks: ResolvedHooks
   retry: ResolvedRetry
+  defer: DeferCallback[]
+  onUploadProgress: ProgressCallback | undefined
+  onDownloadProgress: ProgressCallback | undefined
   redirect: "manual" | "follow" | "error"
   redirectSafeHeaders: string[] | undefined
   redirectMaxCount: number

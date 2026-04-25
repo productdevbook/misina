@@ -7,6 +7,14 @@
  */
 export { createMisina } from "./misina.ts"
 
+export {
+  createMisinaTyped,
+  isSchemaValidationError,
+  SchemaValidationError,
+  validated,
+  validateSchema,
+} from "./typed.ts"
+
 export { defineDriver } from "./driver/_define.ts"
 
 export { replaceOption } from "./_merge.ts"
@@ -24,11 +32,13 @@ export {
 
 export type {
   AfterResponseHook,
+  ArrayFormat,
   BeforeErrorHook,
   BeforeRedirectHook,
   BeforeRequestHook,
   BeforeRetryHook,
   CatchMatcher,
+  DeferCallback,
   HttpMethod,
   InitHook,
   MaybeArray,
@@ -42,8 +52,13 @@ export type {
   MisinaResolvedOptions,
   MisinaResponse,
   MisinaResponsePromise,
+  ParamsSerializer,
+  ProgressCallback,
+  ProgressEvent,
   ResolvedHooks,
   ResolvedRetry,
   ResponseType,
   RetryOptions,
 } from "./types.ts"
+
+export type { EndpointDef, EndpointsMap, StandardSchemaV1, TypedMisina } from "./typed.ts"

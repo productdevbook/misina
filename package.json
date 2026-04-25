@@ -53,6 +53,30 @@
     "./test": {
       "types": "./dist/test/index.d.mts",
       "default": "./dist/test/index.mjs"
+    },
+    "./stream": {
+      "types": "./dist/stream/index.d.mts",
+      "default": "./dist/stream/index.mjs"
+    },
+    "./paginate": {
+      "types": "./dist/paginate/index.d.mts",
+      "default": "./dist/paginate/index.mjs"
+    },
+    "./dedupe": {
+      "types": "./dist/dedupe/index.d.mts",
+      "default": "./dist/dedupe/index.mjs"
+    },
+    "./cache": {
+      "types": "./dist/cache/index.d.mts",
+      "default": "./dist/cache/index.mjs"
+    },
+    "./auth": {
+      "types": "./dist/auth/index.d.mts",
+      "default": "./dist/auth/index.mjs"
+    },
+    "./cookie": {
+      "types": "./dist/cookie/index.d.mts",
+      "default": "./dist/cookie/index.mjs"
     }
   },
   "scripts": {

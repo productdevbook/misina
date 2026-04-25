@@ -2,6 +2,7 @@ import { isPayloadMethod, parseResponseBody, serializeBody } from "./_body.ts"
 import { catchable } from "./_catch.ts"
 import { mergeHooks } from "./_hooks.ts"
 import { mergeOptions } from "./_merge.ts"
+import { progressDownload, progressUpload, supportsRequestStreams } from "./_progress.ts"
 import { followRedirects } from "./_redirect.ts"
 import {
   calculateRetryDelay,
@@ -42,10 +43,12 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
 
     for (const initHook of options.hooks.init) initHook(options)
 
+    await applyDefer(options, defaults, init)
+
     const totalDeadline = computeDeadline(options.totalTimeout)
     const totalSignal = totalDeadline ? deadlineSignal(totalDeadline) : undefined
 
-    let request = buildRequest(options, totalSignal)
+    let request = await buildRequest(options, totalSignal)
     const ctx: MisinaContext = { request, options, attempt: 0 }
 
     for (const hook of options.hooks.beforeRequest) {
@@ -97,6 +100,10 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
 
         if (await canRetryError(retry, ctx, error, attempt)) continue
         throw await runBeforeError(error, ctx)
+      }
+
+      if (options.onDownloadProgress) {
+        response = progressDownload(response, options.onDownloadProgress)
       }
 
       ctx.response = response
@@ -249,7 +256,14 @@ function resolveOptions(
   const baseURL = init.baseURL ?? defaults.baseURL
   const allowAbsoluteUrls = init.allowAbsoluteUrls ?? defaults.allowAbsoluteUrls ?? true
   const headers = mergeHeaders(defaults.headers, init.headers)
-  const url = appendQuery(resolveUrl(input, baseURL, allowAbsoluteUrls), init.query)
+  const arrayFormat = init.arrayFormat ?? defaults.arrayFormat ?? "repeat"
+  const paramsSerializer = init.paramsSerializer ?? defaults.paramsSerializer
+  const url = appendQuery(
+    resolveUrl(input, baseURL, allowAbsoluteUrls),
+    init.query,
+    arrayFormat,
+    paramsSerializer,
+  )
 
   const body = METHODS_WITHOUT_BODY.includes(method) ? undefined : init.body
 
@@ -260,6 +274,8 @@ function resolveOptions(
     headers,
     body,
     query: init.query,
+    arrayFormat,
+    paramsSerializer,
     baseURL,
     timeout: init.timeout ?? defaults.timeout ?? DEFAULT_TIMEOUT,
     totalTimeout: init.totalTimeout ?? defaults.totalTimeout ?? false,
@@ -267,6 +283,12 @@ function resolveOptions(
     responseType: init.responseType ?? defaults.responseType,
     hooks: mergeHooks(defaults.hooks, init.hooks),
     retry: resolveRetry(init.retry, resolveRetry(defaults.retry)),
+    defer: [
+      ...(Array.isArray(defaults.defer) ? defaults.defer : defaults.defer ? [defaults.defer] : []),
+      ...(Array.isArray(init.defer) ? init.defer : init.defer ? [init.defer] : []),
+    ],
+    onUploadProgress: init.onUploadProgress ?? defaults.onUploadProgress,
+    onDownloadProgress: init.onDownloadProgress ?? defaults.onDownloadProgress,
     redirect: init.redirect ?? defaults.redirect ?? "manual",
     redirectSafeHeaders: init.redirectSafeHeaders ?? defaults.redirectSafeHeaders,
     redirectMaxCount: init.redirectMaxCount ?? defaults.redirectMaxCount ?? 5,
@@ -288,13 +310,13 @@ function mergeHeaders(
   return out
 }
 
-function buildRequest(
+async function buildRequest(
   options: MisinaResolvedOptions,
   totalSignal: AbortSignal | undefined,
-): Request {
+): Promise<Request> {
   const headers = { ...options.headers }
   const method = options.method
-  const init: RequestInit = {
+  const init: RequestInit & { duplex?: "half" } = {
     method,
     headers,
     signal: composeSignals([options.signal, totalSignal]),
@@ -302,7 +324,15 @@ function buildRequest(
 
   if (isPayloadMethod(method) && options.body !== undefined) {
     const serialized = serializeBody(options.body, headers, options.stringifyJson)
-    if (serialized !== undefined) init.body = serialized
+    if (serialized !== undefined && serialized !== null) {
+      if (options.onUploadProgress && supportsRequestStreams()) {
+        const wrapped = await progressUpload(serialized, options.onUploadProgress)
+        init.body = wrapped.body
+        init.duplex = "half"
+      } else {
+        init.body = serialized
+      }
+    }
     init.headers = headers
   }
 
@@ -333,6 +363,40 @@ function computeDeadline(totalTimeout: number | false): number | undefined {
 function deadlineSignal(deadline: number): AbortSignal {
   const remaining = deadline - Date.now()
   return timeoutSignal(Math.max(0, remaining))
+}
+
+async function applyDefer(
+  options: MisinaResolvedOptions,
+  defaults: MisinaOptions,
+  init: MisinaRequestInit,
+): Promise<void> {
+  const callbacks = [
+    ...(Array.isArray(defaults.defer) ? defaults.defer : defaults.defer ? [defaults.defer] : []),
+    ...(Array.isArray(init.defer) ? init.defer : init.defer ? [init.defer] : []),
+  ]
+  if (callbacks.length === 0) return
+
+  for (const callback of callbacks) {
+    const patch = await callback(options)
+    if (!patch) continue
+
+    if (patch.headers) {
+      for (const [k, v] of Object.entries(patch.headers)) {
+        options.headers[k.toLowerCase()] = v
+      }
+    }
+    if (patch.baseURL !== undefined) options.baseURL = patch.baseURL
+    if (patch.timeout !== undefined) options.timeout = patch.timeout
+    if (patch.totalTimeout !== undefined) options.totalTimeout = patch.totalTimeout
+    if (patch.signal !== undefined) options.signal = patch.signal
+    if (patch.responseType !== undefined) options.responseType = patch.responseType
+    if (patch.throwHttpErrors !== undefined) options.throwHttpErrors = patch.throwHttpErrors
+    if (patch.parseJson !== undefined) options.parseJson = patch.parseJson
+    if (patch.stringifyJson !== undefined) options.stringifyJson = patch.stringifyJson
+  }
+
+  // Re-resolve URL in case headers changed query/baseURL semantics
+  // (we don't change url after defer for now — defer is for headers/timing primarily)
 }
 
 function mapTransportError(cause: unknown, signal: AbortSignal | undefined, url: string): Error {

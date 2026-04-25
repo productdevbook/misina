@@ -1,10 +1,12 @@
+import type { ArrayFormat, ParamsSerializer } from "./types.ts"
+
 /**
  * Resolve a request input against an optional baseURL using the WHATWG URL
  * parser. Never string-concats — that's the SSRF-prone path used by ofetch.
  *
  * `allowAbsoluteUrls` (default true) controls whether an absolute URL in
  * `input` overrides `baseURL`. Set to false when the caller must be
- * confined to baseURL's origin (e.g. server-side request with user input).
+ * confined to baseURL's origin.
  */
 export function resolveUrl(
   input: string,
@@ -32,19 +34,71 @@ function ensureTrailingSlash(url: string): string {
 }
 
 /**
- * Append/merge a query record onto a URL string. `undefined` values are
- * skipped; arrays produce repeated keys (`?a=1&a=2`).
+ * Append/merge a query record onto a URL string.
+ *
+ * - `undefined`/`null` values are skipped silently.
+ * - Arrays are serialized per `arrayFormat`:
+ *   - `'repeat'` (default): `?a=1&a=2`
+ *   - `'brackets'`: `?a[]=1&a[]=2`
+ *   - `'comma'`: `?a=1,2`
+ *   - `'indices'`: `?a[0]=1&a[1]=2`
+ * - `URLSearchParams` and `string` query values are merged as-is.
+ * - Custom `paramsSerializer` overrides the entire mechanism.
  */
-export function appendQuery(url: string, query: Record<string, unknown> | undefined): string {
-  if (!query) return url
+export function appendQuery(
+  url: string,
+  query: Record<string, unknown> | URLSearchParams | string | undefined,
+  arrayFormat: ArrayFormat = "repeat",
+  paramsSerializer?: ParamsSerializer,
+): string {
+  if (query == null) return url
+
   const u = new URL(url)
+
+  if (paramsSerializer && !(query instanceof URLSearchParams) && typeof query !== "string") {
+    const serialized = paramsSerializer(query as Record<string, unknown>)
+    appendQueryString(u, serialized)
+    return u.toString()
+  }
+
+  if (typeof query === "string") {
+    appendQueryString(u, query)
+    return u.toString()
+  }
+
+  if (query instanceof URLSearchParams) {
+    for (const [key, value] of query) u.searchParams.append(key, value)
+    return u.toString()
+  }
+
   for (const [key, value] of Object.entries(query)) {
     if (value == null) continue
     if (Array.isArray(value)) {
-      for (const v of value) u.searchParams.append(key, String(v))
+      switch (arrayFormat) {
+        case "repeat":
+          for (const v of value) u.searchParams.append(key, String(v))
+          break
+        case "brackets":
+          for (const v of value) u.searchParams.append(`${key}[]`, String(v))
+          break
+        case "comma":
+          u.searchParams.append(key, value.map(String).join(","))
+          break
+        case "indices":
+          value.forEach((v, i) => u.searchParams.append(`${key}[${i}]`, String(v)))
+          break
+      }
     } else {
       u.searchParams.append(key, String(value))
     }
   }
+
   return u.toString()
+}
+
+function appendQueryString(url: URL, qs: string): void {
+  const trimmed = qs.startsWith("?") ? qs.slice(1) : qs
+  if (!trimmed) return
+  const parsed = new URLSearchParams(trimmed)
+  for (const [key, value] of parsed) url.searchParams.append(key, value)
 }
