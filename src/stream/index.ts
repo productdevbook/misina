@@ -20,6 +20,13 @@ export interface SseEvent {
 /**
  * Async-iterate Server-Sent Events from a Response with `text/event-stream`.
  * Closing the iterator cancels the underlying stream.
+ *
+ * Implements the WHATWG HTML EventStream parser (HTML §9.2):
+ * - UTF-8 BOM at the start of the stream is stripped.
+ * - Lines starting with `:` are comments and ignored.
+ * - Empty `event:` field resets to the default `'message'`.
+ * - `id:` containing NUL is ignored per spec.
+ * - Events are yielded on a blank line; trailing buffer flushed on stream end.
  */
 export async function* sseStream(response: Response): AsyncIterable<SseEvent> {
   const body = response.body
@@ -27,8 +34,15 @@ export async function* sseStream(response: Response): AsyncIterable<SseEvent> {
 
   let event: SseEvent = { event: "message", data: "" }
   let dataLines: string[] = []
+  let firstLine = true
 
-  for await (const line of linesOf(response)) {
+  for await (let line of linesOf(response)) {
+    if (firstLine) {
+      // Strip leading BOM if present (HTML §9.2.5).
+      if (line.charCodeAt(0) === 0xfeff) line = line.slice(1)
+      firstLine = false
+    }
+
     if (line === "") {
       if (dataLines.length > 0 || event.id != null || event.retry != null) {
         event.data = dataLines.join("\n")
@@ -47,17 +61,19 @@ export async function* sseStream(response: Response): AsyncIterable<SseEvent> {
 
     switch (field) {
       case "event":
-        event.event = value
+        // Empty event field falls back to the default per spec.
+        event.event = value === "" ? "message" : value
         break
       case "data":
         dataLines.push(value)
         break
       case "id":
-        event.id = value
+        // HTML §9.2.6 step 9: ignore id with NUL.
+        if (!value.includes("\0")) event.id = value
         break
       case "retry": {
-        const n = Number(value)
-        if (Number.isFinite(n)) event.retry = n
+        // HTML §9.2.6 step 10: only accept ASCII-digit-only values.
+        if (/^\d+$/.test(value)) event.retry = Number(value)
         break
       }
     }
