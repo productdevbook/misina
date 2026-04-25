@@ -54,11 +54,14 @@
 - **Driver pattern** — swap the transport. Default driver wraps `globalThis.fetch`; ship a mock or your own.
 - **Hooks lifecycle** — `init`, `beforeRequest`, `beforeRetry`, `beforeRedirect`, `afterResponse`, `beforeError`. Default + per-request hooks concatenate.
 - **Retry** with `Retry-After` / `RateLimit-Reset` parsing, jitter, `backoffLimit`, custom `shouldRetry`. `NetworkError` retried independently from `HTTPError`.
-- **Redirect policy** — manual follow with cross-origin auth/cookie stripping by default. `https → http` downgrade refused.
-- **`validateResponse`** — predicate sees status + parsed body, lets `200 { ok: false }` count as failure.
+- **Redirect policy** — RFC 9110 §15.4 compliant. Manual follow with cross-origin auth/cookie stripping by default. `https → http` downgrade refused.
+- **`validateResponse`** — sync or async predicate sees status + parsed body, lets `200 { ok: false }` count as failure.
 - **Standard Schema** support for runtime validation (zod, valibot, arktype).
 - **OpenAPI** — type-only adapter from `openapi-typescript` output to misina's typed API.
-- **Streaming** — built-in SSE and NDJSON helpers.
+- **Streaming** — built-in SSE (WHATWG HTML §9.2 compliant) and NDJSON helpers.
+- **HTTP cache** — RFC 9111 compliant: `Cache-Control: no-store` / `max-age`, ETag / Last-Modified revalidation, `Vary` per-variant keying.
+- **Cookie jar** — RFC 6265 compliant: domain match check, Path matching, Secure flag, Max-Age / Expires.
+- **214 tests** across 33 files, exhaustively covering specs and edge cases.
 - **Subpath helpers**: `auth`, `cache`, `cookie`, `dedupe`, `paginate`, `stream`, `test`.
 
 ## Install
