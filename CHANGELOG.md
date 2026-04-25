@@ -8,12 +8,37 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ### Hardening — post-v0.1 audit (still in [Unreleased])
 
-Nine consecutive audit passes against WHATWG Fetch / AbortSignal / HTML
+37 consecutive audit passes against WHATWG Fetch / AbortSignal / HTML
 EventStream, RFC 9110 / 9111 / 8288 / 6265, and the latest merged PRs in
 ofetch, ky, and axios. Every pass added regression tests; total test
-count climbed from 18 → 142 across 22 files.
+count climbed from 18 → 359 across 49 files.
 
-Fixed bugs (selected highlights — see commit history for the full list):
+Recent passes (22-37):
+
+- **Pre-flight + retry-loop abort checks** — an already-aborted user
+  signal now rejects before any driver call. Late aborts during retry
+  waiting cancel the loop instead of starting a fresh attempt.
+- **mergeHeaders accepts Headers / [k,v][] / undefined values** —
+  fixed a hard crash when a Headers instance, tuple-array, or
+  `{ auth: token ?? undefined }` (typical optional-header pattern)
+  was passed in.
+- **Stream cancel propagation** — `linesOf()` now cancels through the
+  reader so the cancel signal traverses pipeThrough(TextDecoderStream)
+  back to the source body. Previously, early break-out of an SSE/NDJSON
+  iterator leaked the upstream connection in Node 22+.
+- **HTTPError body parse tolerance** — a 500 with malformed JSON now
+  surfaces as `HTTPError(status=500, data=<text>)` instead of a
+  buried `SyntaxError`.
+- **dedupe slot leak** — sequential awaited calls (`await m.get(); await m.get()`)
+  no longer collapse onto the first call's response. Removed the
+  unnecessary `queueMicrotask` cleanup buffer.
+- **MisinaOptions.headers widened** to `HeadersInit | Record<string, string | undefined>`
+  — DX win, callers can pass Headers instances, tuple arrays, or
+  drop optional headers without type casts.
+- **SchemaValidationError.message** now includes the first issue's
+  message and path. The full `issues` array remains attached.
+
+Older passes (1-21) include:
 
 - **Retry-After parsing**: empty / malformed token no longer produces a
   zero-second instant retry.
@@ -180,7 +205,7 @@ HTTP client.
 
 #### Quality
 
-- 68 tests passing across 9 files.
+- 359 tests passing across 49 files.
 - Lint clean (oxlint + oxfmt), typecheck clean (`tsgo --noEmit` with `--isolatedDeclarations`).
 - Bundle budget gate: core public surface 418 B, engine 12 KB, every subpath ≤ 6 KB.
 - CI matrix: Node 20 / 22 / 24, Bun, Deno smoke test.
