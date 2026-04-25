@@ -77,6 +77,10 @@
     "./cookie": {
       "types": "./dist/cookie/index.d.mts",
       "default": "./dist/cookie/index.mjs"
+    },
+    "./openapi": {
+      "types": "./dist/openapi/index.d.mts",
+      "default": "./dist/openapi/index.mjs"
     }
   },
   "scripts": {

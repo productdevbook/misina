@@ -128,6 +128,13 @@ HTTP client.
 - `StandardSchemaV1` type + `validateSchema` / `validated` helpers for runtime validation (zod, valibot, arktype).
 - `SchemaValidationError` + `isSchemaValidationError`.
 
+#### OpenAPI (#35)
+
+- `misina/openapi` subpath — type-only adapter `OpenApiEndpoints<Paths>` that converts an [`openapi-typescript`](https://github.com/openapi-ts/openapi-typescript)-shaped `paths` type into misina's `EndpointsMap`.
+- Picks up `parameters.path`, `parameters.query`, `requestBody.content['application/json']`, and `responses[200|201|204|default].content['application/json']` per operation.
+- Zero runtime cost — published `.mjs` is 11 bytes (re-exports only); all the logic is in `.d.mts`.
+- Structurally matches the openapi-typescript output shape — works with any generator that emits the same shape.
+
 #### Quality
 
 - 68 tests passing across 9 files.

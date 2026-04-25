@@ -25,6 +25,7 @@ const BUDGETS = [
   { match: (p) => p.startsWith("auth/"), max: 6_000, label: "auth" },
   { match: (p) => p.startsWith("cookie/"), max: 6_000, label: "cookie" },
   { match: (p) => p.startsWith("test/"), max: 6_000, label: "test" },
+  { match: (p) => p.startsWith("openapi/"), max: 200, label: "openapi (type-only)" },
   { match: (p) => p === "typed.mjs", max: 6_000, label: "typed" },
   { match: (p) => p === "types.mjs", max: 200, label: "types" },
 ]

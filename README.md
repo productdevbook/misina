@@ -42,6 +42,7 @@
 - [Progress Events](#progress-events)
 - [defer — Late-Binding Config](#defer--late-binding-config)
 - [Type-Safe Path Generics](#type-safe-path-generics)
+- [OpenAPI](#openapi)
 - [Standard Schema Validation](#standard-schema-validation)
 - [Security Defaults](#security-defaults)
 - [Compared To](#compared-to)
@@ -56,6 +57,7 @@
 - **Redirect policy** — manual follow with cross-origin auth/cookie stripping by default. `https → http` downgrade refused.
 - **`validateResponse`** — predicate sees status + parsed body, lets `200 { ok: false }` count as failure.
 - **Standard Schema** support for runtime validation (zod, valibot, arktype).
+- **OpenAPI** — type-only adapter from `openapi-typescript` output to misina's typed API.
 - **Streaming** — built-in SSE and NDJSON helpers.
 - **Subpath helpers**: `auth`, `cache`, `cookie`, `dedupe`, `paginate`, `stream`, `test`.
 
@@ -454,6 +456,25 @@ const list = await api.get("/users", { query: { page: 2 } })
 ```
 
 Path params are substituted at runtime: `/users/:id` → `/users/42` (also `{id}` syntax).
+
+## OpenAPI
+
+If you already run [`openapi-typescript`](https://github.com/openapi-ts/openapi-typescript) on your spec, the type-only `misina/openapi` subpath turns its output into an `EndpointsMap` for free:
+
+```ts
+import { createMisinaTyped } from "misina"
+import type { OpenApiEndpoints } from "misina/openapi"
+import type { paths } from "./generated.d.ts"
+
+const api = createMisinaTyped<OpenApiEndpoints<paths>>({ baseURL })
+
+const user = await api.get("/users/{id}", { params: { id: "42" } })
+//          ^? whatever paths['/users/{id}']['get']['responses']['200'] resolves to
+```
+
+For each path × verb in your spec, the adapter produces a `${VERB} ${path}` key with the right `params`, `query`, `body`, and `response` shapes pulled from `parameters.path`, `parameters.query`, `requestBody.content['application/json']`, and `responses[200|201|204|default].content['application/json']`. Operations that don't declare path/query/body simply omit those fields.
+
+Zero runtime cost — the published `misina/openapi/index.mjs` is **11 bytes** (re-exports only). All the work happens in `.d.mts`.
 
 ## Standard Schema Validation
 
