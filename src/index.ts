@@ -27,6 +27,7 @@ export {
   isTimeoutError,
   MisinaError,
   NetworkError,
+  type ProblemDetails,
   TimeoutError,
 } from "./errors/index.ts"
 

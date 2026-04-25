@@ -1,5 +1,5 @@
 export { MisinaError } from "./base.ts"
-export { HTTPError } from "./http.ts"
+export { HTTPError, type ProblemDetails } from "./http.ts"
 export { isRawNetworkError, NetworkError } from "./network.ts"
 export { TimeoutError } from "./timeout.ts"
 
