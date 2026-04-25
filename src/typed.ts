@@ -43,27 +43,40 @@ type CallInit<E> = Omit<MisinaOptions, "headers"> & {
 
 type Response<E> = MisinaResponsePromise<E extends { response: infer R } ? R : unknown>
 
+// True when the endpoint has no required `params`, `query`, or `body`. In
+// that case the call's `init` argument should be optional so users can write
+// `api.get('/health')` instead of `api.get('/health', {})`.
+type HasRequiredFields<E> = E extends { params: unknown }
+  ? true
+  : E extends { query: unknown }
+    ? true
+    : E extends { body: unknown }
+      ? true
+      : false
+
+type CallArgs<E> = HasRequiredFields<E> extends true ? [init: CallInit<E>] : [init?: CallInit<E>]
+
 export interface TypedMisina<E extends EndpointsMap> {
   raw: Misina
   get: <P extends keyof EndpointsOfMethod<E, "GET"> & string>(
     path: P,
-    init: CallInit<EndpointsOfMethod<E, "GET">[P]>,
+    ...args: CallArgs<EndpointsOfMethod<E, "GET">[P]>
   ) => Response<EndpointsOfMethod<E, "GET">[P]>
   post: <P extends keyof EndpointsOfMethod<E, "POST"> & string>(
     path: P,
-    init: CallInit<EndpointsOfMethod<E, "POST">[P]>,
+    ...args: CallArgs<EndpointsOfMethod<E, "POST">[P]>
   ) => Response<EndpointsOfMethod<E, "POST">[P]>
   put: <P extends keyof EndpointsOfMethod<E, "PUT"> & string>(
     path: P,
-    init: CallInit<EndpointsOfMethod<E, "PUT">[P]>,
+    ...args: CallArgs<EndpointsOfMethod<E, "PUT">[P]>
   ) => Response<EndpointsOfMethod<E, "PUT">[P]>
   patch: <P extends keyof EndpointsOfMethod<E, "PATCH"> & string>(
     path: P,
-    init: CallInit<EndpointsOfMethod<E, "PATCH">[P]>,
+    ...args: CallArgs<EndpointsOfMethod<E, "PATCH">[P]>
   ) => Response<EndpointsOfMethod<E, "PATCH">[P]>
   delete: <P extends keyof EndpointsOfMethod<E, "DELETE"> & string>(
     path: P,
-    init: CallInit<EndpointsOfMethod<E, "DELETE">[P]>,
+    ...args: CallArgs<EndpointsOfMethod<E, "DELETE">[P]>
   ) => Response<EndpointsOfMethod<E, "DELETE">[P]>
 }
 
@@ -75,7 +88,7 @@ export function createMisinaTyped<E extends EndpointsMap>(
   function call<R>(
     method: string,
     path: string,
-    init: Record<string, unknown>,
+    init: Record<string, unknown> = {},
   ): MisinaResponsePromise<R> {
     const params = init.params as Record<string, string | number> | undefined
     const url = params ? substitutePathParams(path, params) : path
@@ -93,7 +106,7 @@ export function createMisinaTyped<E extends EndpointsMap>(
 
   const make =
     (method: string) =>
-    (path: string, init: Record<string, unknown>): MisinaResponsePromise<unknown> =>
+    (path: string, init?: Record<string, unknown>): MisinaResponsePromise<unknown> =>
       call(method, path, init)
 
   return {
