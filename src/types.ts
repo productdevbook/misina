@@ -351,6 +351,19 @@ export interface MisinaOptions extends MisinaRuntimeOptions {
    * - `false` (default) — leave it to the transport
    */
   decompress?: boolean | readonly ("gzip" | "deflate" | "deflate-raw" | "br" | "zstd")[]
+  /**
+   * Opt-in request body compression. Wraps the outgoing body in a
+   * `CompressionStream` and sets `Content-Encoding`. Only `gzip`,
+   * `deflate`, and `deflate-raw` are compression-stream supported on
+   * the WHATWG baseline; `br` / `zstd` are not. FormData and Blob
+   * bodies are skipped (their wire-format contract belongs to the
+   * caller). Default: `false`.
+   *
+   * - `true` — pick the first runtime-supported format (gzip preferred)
+   * - `'gzip'` / `'deflate'` / `'deflate-raw'` — force a specific format
+   * - `false` — leave the body untouched
+   */
+  compressRequestBody?: boolean | "gzip" | "deflate" | "deflate-raw"
   /** Standard `fetch` cache mode, passed through to runtime / Next.js. */
   cache?: RequestCache
   /** Standard `fetch` credentials mode. Only sent when explicitly set. */
@@ -425,6 +438,7 @@ export interface MisinaResolvedOptions extends MisinaRuntimeOptions {
   credentials: RequestCredentials | undefined
   priority: "high" | "low" | "auto" | undefined
   decompress: boolean | readonly ("gzip" | "deflate" | "deflate-raw" | "br" | "zstd")[]
+  compressRequestBody: boolean | "gzip" | "deflate" | "deflate-raw"
   idempotencyKey: false | "auto" | string | ((request: Request) => string)
   next: { revalidate?: number | false; tags?: string[] } | undefined
   redirect: "manual" | "follow" | "error"

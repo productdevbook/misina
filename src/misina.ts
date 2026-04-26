@@ -1,5 +1,6 @@
 import { isPayloadMethod, parseResponseBody, serializeBody } from "./_body.ts"
 import { catchable } from "./_catch.ts"
+import { compressBody, resolveCompressFormat } from "./_compress.ts"
 import { mergeHooks } from "./_hooks.ts"
 import { mergeOptions } from "./_merge.ts"
 import {
@@ -510,6 +511,7 @@ function resolveOptions(
     credentials: init.credentials ?? defaults.credentials,
     priority: init.priority ?? defaults.priority,
     decompress: init.decompress ?? defaults.decompress ?? false,
+    compressRequestBody: init.compressRequestBody ?? defaults.compressRequestBody ?? false,
     idempotencyKey: init.idempotencyKey ?? defaults.idempotencyKey ?? false,
     next: init.next ?? defaults.next,
     // Forward all keys declared on MisinaRuntimeOptions (e.g. `cf` from
@@ -643,6 +645,22 @@ async function buildRequest(
       } else {
         init.body = serialized
         if (serialized instanceof ReadableStream) init.duplex = "half"
+      }
+    }
+    // Opt-in request body compression. Done after serialize / progress
+    // wrapping so we compress the final wire bytes, not the original.
+    if (options.compressRequestBody !== false && init.body != null) {
+      const fmt = resolveCompressFormat(options.compressRequestBody)
+      if (fmt) {
+        const compressed = compressBody(init.body as BodyInit, fmt)
+        if (compressed) {
+          init.body = compressed.stream
+          init.duplex = "half"
+          headers["content-encoding"] = compressed.encoding
+          // Length is unknown after compression; the caller's
+          // Content-Length (if any) is no longer accurate.
+          delete headers["content-length"]
+        }
       }
     }
     init.headers = headers
