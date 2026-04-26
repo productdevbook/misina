@@ -315,11 +315,12 @@ function resolveOptions(
   const baseURL = init.baseURL ?? defaults.baseURL
   const allowAbsoluteUrls = init.allowAbsoluteUrls ?? defaults.allowAbsoluteUrls ?? true
   const allowedProtocols = init.allowedProtocols ?? defaults.allowedProtocols ?? ["http", "https"]
+  const trailingSlash = init.trailingSlash ?? defaults.trailingSlash ?? "preserve"
   const headers = mergeHeaders(defaults.headers, init.headers)
   const arrayFormat = init.arrayFormat ?? defaults.arrayFormat ?? "repeat"
   const paramsSerializer = init.paramsSerializer ?? defaults.paramsSerializer
   const url = appendQuery(
-    resolveUrl(input, baseURL, allowAbsoluteUrls, allowedProtocols),
+    resolveUrl(input, baseURL, allowAbsoluteUrls, allowedProtocols, trailingSlash),
     init.query,
     arrayFormat,
     paramsSerializer,
@@ -331,6 +332,7 @@ function resolveOptions(
     url,
     allowAbsoluteUrls,
     allowedProtocols,
+    trailingSlash,
     method,
     headers,
     body,

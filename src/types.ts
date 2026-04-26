@@ -139,6 +139,15 @@ export interface MisinaOptions {
    */
   allowedProtocols?: readonly string[]
   /**
+   * Trailing-slash policy for the final URL:
+   * - `"preserve"` (default) — leave the URL alone.
+   * - `"strip"` — remove trailing slashes from the path before dispatch.
+   * - `"forbid"` — throw if the path ends with `/`.
+   *
+   * Useful as a guardrail when a backend 404s on the wrong canonical form.
+   */
+  trailingSlash?: "preserve" | "strip" | "forbid"
+  /**
    * HTTP headers. Accepts a Record, a Headers instance, or [k, v] tuple pairs.
    * Values that are `undefined` or `null` are silently dropped — handy for
    * optional headers like `{ authorization: token ?? undefined }`.
@@ -269,6 +278,7 @@ export interface MisinaResolvedOptions {
   url: string
   allowAbsoluteUrls: boolean
   allowedProtocols: readonly string[]
+  trailingSlash: "preserve" | "strip" | "forbid"
   method: HttpMethod
   headers: Record<string, string>
   body?: unknown

@@ -12,11 +12,14 @@ import type { ArrayFormat, ParamsSerializer } from "./types.ts"
  * are permitted. Embedded runtimes (Capacitor, Tauri) can opt in to their
  * custom schemes by extending the list.
  */
+export type TrailingSlashPolicy = "preserve" | "strip" | "forbid"
+
 export function resolveUrl(
   input: string,
   baseURL: string | undefined,
   allowAbsoluteUrls = true,
   allowedProtocols: readonly string[] = ["http", "https"],
+  trailingSlash: TrailingSlashPolicy = "preserve",
 ): string {
   let resolved: string
   if (isAbsoluteUrl(input)) {
@@ -32,7 +35,30 @@ export function resolveUrl(
     resolved = new URL(input, ensureTrailingSlash(baseURL)).toString()
   }
   assertAllowedProtocol(resolved, allowedProtocols)
-  return resolved
+  return applyTrailingSlash(resolved, trailingSlash)
+}
+
+function applyTrailingSlash(url: string, policy: TrailingSlashPolicy): string {
+  if (policy === "preserve") return url
+  // Find the path component without parsing — keeps relative URLs intact.
+  // Strip any query/hash before checking the trailing char.
+  const queryAt = url.indexOf("?")
+  const hashAt = url.indexOf("#")
+  const pathEnd = Math.min(
+    queryAt === -1 ? url.length : queryAt,
+    hashAt === -1 ? url.length : hashAt,
+  )
+  const path = url.slice(0, pathEnd)
+  const tail = url.slice(pathEnd)
+  // Don't touch a bare scheme://host — there's no path to strip.
+  if (!path.endsWith("/") || /^[a-z][a-z0-9+.-]*:\/\/[^/]*$/i.test(path)) return url
+  if (policy === "forbid") {
+    throw new Error(
+      `misina: trailing slash on ${JSON.stringify(url)} rejected because trailingSlash is "forbid"`,
+    )
+  }
+  // policy === "strip"
+  return path.replace(/\/+$/, "") + tail
 }
 
 function assertAllowedProtocol(url: string, allowed: readonly string[]): void {
