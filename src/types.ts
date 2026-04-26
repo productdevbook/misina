@@ -259,6 +259,12 @@ export interface MisinaOptions {
   /** Fired as the response body is consumed. */
   onDownloadProgress?: ProgressCallback
   /**
+   * Throttle progress callbacks to fire at most once every N ms. Default 0
+   * (no throttle — every chunk fires). The final 100% event always fires
+   * regardless of throttle.
+   */
+  progressIntervalMs?: number
+  /**
    * Send an `Idempotency-Key` header on retried mutations so the server can
    * deduplicate. The same key is reused across all attempts of one logical
    * request — the whole point.
@@ -339,6 +345,7 @@ export interface MisinaResolvedOptions {
   defer: DeferCallback[]
   onUploadProgress: ProgressCallback | undefined
   onDownloadProgress: ProgressCallback | undefined
+  progressIntervalMs: number
   cache: RequestCache | undefined
   credentials: RequestCredentials | undefined
   priority: "high" | "low" | "auto" | undefined

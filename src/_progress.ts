@@ -14,6 +14,7 @@ const CHUNK_SIZE = 64 * 1024
 export async function progressUpload(
   body: BodyInit,
   callback: ProgressCallback,
+  intervalMs = 0,
 ): Promise<{ body: BodyInit; total: number | undefined }> {
   const { bytes, total } = await materializeBody(body)
   if (!bytes) {
@@ -21,8 +22,25 @@ export async function progressUpload(
     return { body, total: undefined }
   }
 
-  const stream = chunkifyToProgressStream(bytes, total ?? bytes.byteLength, callback)
+  const stream = chunkifyToProgressStream(
+    bytes,
+    total ?? bytes.byteLength,
+    throttle(callback, intervalMs),
+  )
   return { body: stream, total: total ?? bytes.byteLength }
+}
+
+function throttle(callback: ProgressCallback, intervalMs: number): ProgressCallback {
+  if (intervalMs <= 0) return callback
+  let last = 0
+  return (event) => {
+    const now = Date.now()
+    // Always emit the final 100% event regardless of throttle.
+    if (event.percent === 1 || now - last >= intervalMs) {
+      last = now
+      callback(event)
+    }
+  }
 }
 
 async function materializeBody(
@@ -83,7 +101,11 @@ function chunkifyToProgressStream(
  * Wrap a Response so iterating its body fires progress events. Returns a
  * new Response with the wrapped stream; consume it like any other Response.
  */
-export function progressDownload(response: Response, callback: ProgressCallback): Response {
+export function progressDownload(
+  response: Response,
+  callback: ProgressCallback,
+  intervalMs = 0,
+): Response {
   const body = response.body
   if (!body) return response
 
@@ -91,6 +113,7 @@ export function progressDownload(response: Response, callback: ProgressCallback)
   const total = totalHeader ? Number(totalHeader) : undefined
   const start = Date.now()
   let loaded = 0
+  const emit = throttle(callback, intervalMs)
 
   const wrapped = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -103,7 +126,7 @@ export function progressDownload(response: Response, callback: ProgressCallback)
           controller.enqueue(value)
 
           const elapsed = (Date.now() - start) / 1000
-          callback({
+          emit({
             loaded,
             total: total != null && Number.isFinite(total) ? total : undefined,
             percent: total ? loaded / total : 0,

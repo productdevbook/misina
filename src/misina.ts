@@ -140,7 +140,11 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
       }
 
       if (options.onDownloadProgress) {
-        response = progressDownload(response, options.onDownloadProgress)
+        response = progressDownload(
+          response,
+          options.onDownloadProgress,
+          options.progressIntervalMs,
+        )
       }
 
       ctx.response = response
@@ -431,6 +435,7 @@ function resolveOptions(
     ],
     onUploadProgress: init.onUploadProgress ?? defaults.onUploadProgress,
     onDownloadProgress: init.onDownloadProgress ?? defaults.onDownloadProgress,
+    progressIntervalMs: init.progressIntervalMs ?? defaults.progressIntervalMs ?? 0,
     cache: init.cache ?? defaults.cache,
     credentials: init.credentials ?? defaults.credentials,
     priority: init.priority ?? defaults.priority,
@@ -524,7 +529,11 @@ async function buildRequest(
     const serialized = serializeBody(options.body, headers, options.stringifyJson)
     if (serialized !== undefined && serialized !== null) {
       if (options.onUploadProgress && supportsRequestStreams()) {
-        const wrapped = await progressUpload(serialized, options.onUploadProgress)
+        const wrapped = await progressUpload(
+          serialized,
+          options.onUploadProgress,
+          options.progressIntervalMs,
+        )
         init.body = wrapped.body
         init.duplex = "half"
       } else {
