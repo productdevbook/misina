@@ -35,6 +35,7 @@ const BUDGETS = [
   { match: (p) => p.startsWith("graphql/"), max: 4_000, label: "graphql" },
   { match: (p) => p.startsWith("hedge/"), max: 2_500, label: "hedge" },
   { match: (p) => p.startsWith("sentry/"), max: 2_500, label: "sentry" },
+  { match: (p) => p.startsWith("otel/"), max: 2_500, label: "otel" },
   { match: (p) => p.startsWith("runtime/"), max: 1_500, label: "runtime augmentation" },
   { match: (p) => p.startsWith("openapi/"), max: 200, label: "openapi (type-only)" },
   { match: (p) => p === "typed.mjs", max: 6_000, label: "typed" },

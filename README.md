@@ -52,6 +52,7 @@
   - [misina/transfer](#misinatransfer)
   - [misina/auth/oauth](#misinaauthoauth)
   - [misina/auth/sigv4](#misinaauthsigv4)
+  - [misina/otel](#misinaotel)
   - [misina/sentry](#misinasentry)
   - [misina/beacon](#misinabeacon)
   - [misina/graphql](#misinagraphql)
@@ -85,8 +86,8 @@
 - **Streaming** — built-in SSE (WHATWG HTML §9.2 compliant) and NDJSON helpers.
 - **HTTP cache** — RFC 9111 compliant: `Cache-Control: no-store` / `max-age`, ETag / Last-Modified revalidation, `Vary` per-variant keying.
 - **Cookie jar** — RFC 6265 compliant: domain match check, Path matching, Secure flag, Max-Age / Expires.
-- **789 tests** across 110 files, exhaustively covering specs and edge cases.
-- **Subpath helpers**: `auth`, `auth/oauth`, `beacon`, `breaker`, `cache`, `cookie`, `dedupe`, `digest`, `graphql`, `hedge`, `paginate`, `poll`, `ratelimit`, `runtime/{bun,cloudflare,deno,next}`, `sentry`, `stream`, `test`, `tracing`, `transfer`.
+- **804 tests** across 112 files, exhaustively covering specs and edge cases.
+- **Subpath helpers**: `auth`, `auth/oauth`, `auth/sigv4`, `beacon`, `breaker`, `cache`, `cookie`, `dedupe`, `digest`, `graphql`, `hedge`, `otel`, `paginate`, `poll`, `ratelimit`, `runtime/{bun,cloudflare,deno,next}`, `sentry`, `stream`, `test`, `tracing`, `transfer`.
 - **Idempotency-Key on retry** (RFC draft) — `idempotencyKey: 'auto'` sends a `crypto.randomUUID()` for retried mutations. No competitor ships this.
 - **RFC 9457 problem+json** parsed onto `HTTPError.problem` automatically.
 - **Circuit breaker** (`misina/breaker`) — Polly-shaped state machine, zero deps.
@@ -111,6 +112,7 @@
 - **Resumable transfers** (`misina/transfer`) — `downloadResumable()` is Range-aware with per-chunk retries; `uploadResumable()` follows draft-ietf-httpbis-resumable-upload (POST + PATCH with `Upload-Offset`).
 - **OAuth helpers** (`misina/auth/oauth`) — `withJwtRefresh()` peeks `exp` and refreshes preemptively (single-flight); `createPkcePair()` + `exchangePkceCode()` for PKCE flows.
 - **AWS SigV4 signer** (`misina/auth/sigv4`) — `withSigV4()` adds `Authorization: AWS4-HMAC-SHA256 ...` + `x-amz-date` + `x-amz-content-sha256` to every request via Web Crypto. No `@aws-sdk/*` peer dep.
+- **OpenTelemetry spans** (`misina/otel`) — `withOtel()` emits HTTP client spans with semconv attributes; tracer is duck-typed so misina never imports `@opentelemetry/*`.
 - **VCR-lite test helpers** — `record()` + `recordToJSON()` + `replayFromJSON()` round-trip cassettes; `harToCassette()` imports HAR; `coverage()` flags unused routes; `randomStatus` / `randomNetworkError` for chaos; `misinaCallSerializer` redacts volatile headers in Vitest snapshots.
 - **Typed runtime knobs** — `misina/runtime/{bun,deno,cloudflare,next}` augment `MisinaOptions` with runtime-specific fields (`tls`, `client`, `cf`, `next`).
 
@@ -913,6 +915,34 @@ Streaming uploads: pass `unsignedPayload: true` to use
 to hash it. `signRequest(request, opts)` is exported separately for
 one-off signing without wrapping the misina instance.
 
+### misina/otel
+
+```ts
+import { trace } from "@opentelemetry/api"
+import { withOtel } from "misina/otel"
+
+const api = withOtel(createMisina({ baseURL }), {
+  tracer: trace.getTracer("my-service"),
+  // optional:
+  spanName: (req) => `http.${req.method.toLowerCase()} ${new URL(req.url).pathname}`,
+  attributes: { "deployment.environment": process.env.NODE_ENV },
+})
+```
+
+Emits one OTel HTTP client span per request (`SpanKind.CLIENT`) with the
+standard semconv attributes — `http.request.method`, `url.full`,
+`url.scheme`, `server.address`, `server.port`, `network.protocol.name`
+on start; `http.response.status_code` on completion. Errors call
+`span.recordException(err)` and set status `ERROR`. `traceparent` is
+auto-injected from the active span context; pass
+`injectTraceparent: false` when `withTracing` is already in the chain
+to avoid double injection.
+
+Peer-dep duck-typed: anything matching the minimal `{ startSpan }`
+shape works — the real `Tracer` from `@opentelemetry/api`, an in-
+memory exporter for tests, or your own wrapper. misina never imports
+`@opentelemetry/*`.
+
 ### misina/sentry
 
 ```ts
@@ -921,9 +951,9 @@ import { withSentry } from "misina/sentry"
 
 const api = withSentry(createMisina({ baseURL }), {
   Sentry,
-  captureLevel: "error",          // 'all' | 'error' (skip 4xx, default) | '5xx'
+  captureLevel: "error", // 'all' | 'error' (skip 4xx, default) | '5xx'
   redactHeaders: ["authorization", "cookie", "x-api-key"],
-  successBreadcrumb: true,        // add a breadcrumb on every 2xx
+  successBreadcrumb: true, // add a breadcrumb on every 2xx
 })
 ```
 
@@ -962,7 +992,13 @@ const gql = withGraphql(createMisina({ baseURL }), {
 })
 
 const data = await gql.query<{ user: { id: string } }>(
-  /* GraphQL */ `query U($id: ID!) { user(id: $id) { id } }`,
+  /* GraphQL */ `
+    query U($id: ID!) {
+      user(id: $id) {
+        id
+      }
+    }
+  `,
   { id: "42" },
 )
 ```
@@ -986,8 +1022,8 @@ const data = await hedge<User>(misina, "/users/42", {
     "https://api-us.example.com",
     "https://api-ap.example.com",
   ],
-  delayMs: 75,    // start replicas 1+ after this delay (Google "tail at scale")
-  max: 3,         // cap simultaneous in-flight attempts
+  delayMs: 75, // start replicas 1+ after this delay (Google "tail at scale")
+  max: 3, // cap simultaneous in-flight attempts
 })
 ```
 
