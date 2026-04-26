@@ -18,7 +18,7 @@ const BUDGETS = [
   // Subpaths
   { match: (p) => p.startsWith("driver/"), max: 6_000, label: "driver" },
   { match: (p) => p.startsWith("errors/"), max: 4_000, label: "errors" },
-  { match: (p) => p.startsWith("stream/"), max: 4_000, label: "stream" },
+  { match: (p) => p.startsWith("stream/"), max: 5_500, label: "stream" },
   { match: (p) => p.startsWith("paginate/"), max: 4_000, label: "paginate" },
   { match: (p) => p.startsWith("dedupe/"), max: 4_000, label: "dedupe" },
   { match: (p) => p.startsWith("cache/"), max: 4_500, label: "cache" },

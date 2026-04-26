@@ -136,3 +136,182 @@ export async function* linesOf(response: Response): AsyncIterable<string> {
     reader.releaseLock()
   }
 }
+
+/**
+ * Generic stream consumer with reducer. Drains the iterable and folds
+ * each chunk into a running accumulator, returning the final value.
+ *
+ * Mirrors `Array.prototype.reduce` for async iterables. Useful as the
+ * building block for provider-specific accumulators below.
+ */
+export async function collect<TIn, TOut>(
+  source: AsyncIterable<TIn>,
+  reducer: (acc: TOut, chunk: TIn) => TOut | Promise<TOut>,
+  initial: TOut,
+): Promise<TOut> {
+  let acc = initial
+  for await (const chunk of source) {
+    acc = await reducer(acc, chunk)
+  }
+  return acc
+}
+
+/**
+ * OpenAI Chat Completions streaming format. The model emits SSE events
+ * with `data: { ... }` payloads carrying `choices[].delta` increments.
+ * Tool calls arrive as partial deltas indexed by `index`; `function.name`
+ * is set on the first delta and `function.arguments` is concatenated
+ * across subsequent deltas.
+ */
+export interface OpenAIToolCall {
+  id?: string
+  type?: "function"
+  function: { name?: string; arguments: string }
+}
+
+/**
+ * Drain an OpenAI chat-completion SSE stream and return the accumulated
+ * tool calls. Stops at the `[DONE]` sentinel. JSON parse errors and
+ * non-tool-call deltas are tolerated silently — telemetry shouldn't break
+ * the stream.
+ *
+ * @example
+ * ```ts
+ * const res = await api.post('/v1/chat/completions', body, { responseType: 'stream' })
+ * const calls = await accumulateOpenAIToolCalls(sseStream(res.raw))
+ * ```
+ */
+export async function accumulateOpenAIToolCalls(
+  events: AsyncIterable<SseEvent>,
+): Promise<OpenAIToolCall[]> {
+  const byIndex: OpenAIToolCall[] = []
+  for await (const event of events) {
+    if (event.data === "[DONE]") break
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(event.data)
+    } catch {
+      continue
+    }
+    const choice = (parsed as { choices?: Array<{ delta?: unknown }> }).choices?.[0]
+    const delta = choice?.delta as
+      | {
+          tool_calls?: Array<{
+            index: number
+            id?: string
+            type?: "function"
+            function?: { name?: string; arguments?: string }
+          }>
+        }
+      | undefined
+    if (!delta?.tool_calls) continue
+    for (const tc of delta.tool_calls) {
+      const slot = (byIndex[tc.index] ??= { function: { arguments: "" } })
+      if (tc.id) slot.id = tc.id
+      if (tc.type) slot.type = tc.type
+      if (tc.function?.name) slot.function.name = tc.function.name
+      if (tc.function?.arguments) slot.function.arguments += tc.function.arguments
+    }
+  }
+  return byIndex
+}
+
+/**
+ * Anthropic Messages streaming format. Named events carry typed payloads:
+ * `message_start`, `content_block_start`, `content_block_delta`,
+ * `content_block_stop`, `message_delta`, `message_stop`. Content blocks
+ * may be `text` (concatenate `text_delta.text`) or `tool_use`
+ * (concatenate `input_json_delta.partial_json` then JSON.parse at end).
+ */
+export interface AnthropicContentBlock {
+  type: "text" | "tool_use" | string
+  text?: string
+  id?: string
+  name?: string
+  input?: unknown
+  /** Raw partial-JSON for tool_use; populated until content_block_stop. */
+  partial_json?: string
+}
+
+export interface AnthropicAccumulatedMessage {
+  id?: string
+  model?: string
+  role?: string
+  content: AnthropicContentBlock[]
+  stop_reason?: string | null
+  usage?: { input_tokens?: number; output_tokens?: number }
+}
+
+/**
+ * Drain an Anthropic Messages SSE stream and return the accumulated
+ * message. Closes at `message_stop`. Tool-use partial JSON is
+ * concatenated and parsed on `content_block_stop`; if parsing fails the
+ * raw `partial_json` stays accessible.
+ *
+ * @example
+ * ```ts
+ * const res = await api.post('/v1/messages', body, { responseType: 'stream' })
+ * const message = await accumulateAnthropicMessage(sseStream(res.raw))
+ * ```
+ */
+export async function accumulateAnthropicMessage(
+  events: AsyncIterable<SseEvent>,
+): Promise<AnthropicAccumulatedMessage> {
+  const message: AnthropicAccumulatedMessage = { content: [] }
+  for await (const event of events) {
+    let payload: unknown
+    try {
+      payload = JSON.parse(event.data)
+    } catch {
+      continue
+    }
+    const ev = event.event
+    if (ev === "message_start") {
+      const m = (payload as { message?: Partial<AnthropicAccumulatedMessage> }).message
+      if (m) Object.assign(message, m, { content: [] })
+      continue
+    }
+    if (ev === "content_block_start") {
+      const p = payload as { index: number; content_block?: AnthropicContentBlock }
+      if (p.content_block) message.content[p.index] = { ...p.content_block }
+      continue
+    }
+    if (ev === "content_block_delta") {
+      const p = payload as {
+        index: number
+        delta?: { type?: string; text?: string; partial_json?: string }
+      }
+      const block = message.content[p.index]
+      if (!block || !p.delta) continue
+      if (p.delta.type === "text_delta" && p.delta.text) {
+        block.text = (block.text ?? "") + p.delta.text
+      } else if (p.delta.type === "input_json_delta" && p.delta.partial_json !== undefined) {
+        block.partial_json = (block.partial_json ?? "") + p.delta.partial_json
+      }
+      continue
+    }
+    if (ev === "content_block_stop") {
+      const p = payload as { index: number }
+      const block = message.content[p.index]
+      if (block?.partial_json !== undefined && block.input === undefined) {
+        try {
+          block.input = JSON.parse(block.partial_json)
+        } catch {
+          // leave partial_json intact for caller inspection
+        }
+      }
+      continue
+    }
+    if (ev === "message_delta") {
+      const p = payload as {
+        delta?: Partial<AnthropicAccumulatedMessage>
+        usage?: AnthropicAccumulatedMessage["usage"]
+      }
+      if (p.delta) Object.assign(message, p.delta)
+      if (p.usage) message.usage = { ...message.usage, ...p.usage }
+      continue
+    }
+    if (ev === "message_stop") break
+  }
+  return message
+}
