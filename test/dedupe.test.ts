@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { createMisina } from "../src/index.ts"
 import mockDriverFactory from "../src/driver/mock.ts"
-import { withDedupe } from "../src/dedupe/index.ts"
+import { dedupe } from "../src/dedupe/index.ts"
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -10,7 +10,7 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   })
 }
 
-describe("withDedupe", () => {
+describe("dedupe", () => {
   it("collapses concurrent identical GETs onto a single network call", async () => {
     let calls = 0
     const driver = {
@@ -22,7 +22,7 @@ describe("withDedupe", () => {
       },
     }
 
-    const api = withDedupe(createMisina({ driver, retry: 0 }))
+    const api = createMisina({ driver, retry: 0, use: [dedupe()] })
 
     const [a, b, c] = await Promise.all([
       api.get("https://api.test/x"),
@@ -46,7 +46,7 @@ describe("withDedupe", () => {
       },
     }
 
-    const api = withDedupe(createMisina({ driver, retry: 0 }))
+    const api = createMisina({ driver, retry: 0, use: [dedupe()] })
 
     await Promise.all([
       api.post("https://api.test/x", { a: 1 }),
@@ -60,7 +60,7 @@ describe("withDedupe", () => {
     const driver = mockDriverFactory({
       response: new Response("nope", { status: 404 }),
     })
-    const api = withDedupe(createMisina({ driver, retry: 0 }))
+    const api = createMisina({ driver, retry: 0, use: [dedupe()] })
 
     const result = await api.get<unknown>("https://api.test/").onError(404, () => "fallback")
     expect(result).toBe("fallback")
@@ -79,9 +79,16 @@ describe("withDedupe", () => {
       },
     }
 
-    const api = withDedupe(createMisina({ driver, retry: 0 }), {
-      methods: ["POST"],
-      key: (input, init) => `${init?.method ?? "GET"} ${input} ${JSON.stringify(init?.body ?? {})}`,
+    const api = createMisina({
+      driver,
+      retry: 0,
+      use: [
+        dedupe({
+          methods: ["POST"],
+          key: (input: string, init?: { method?: string; body?: unknown }) =>
+            `${init?.method ?? "GET"} ${input} ${JSON.stringify(init?.body ?? {})}`,
+        }),
+      ],
     })
 
     await Promise.all([

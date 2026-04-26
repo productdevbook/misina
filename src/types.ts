@@ -639,6 +639,45 @@ export interface Misina {
 }
 
 /**
+ * Plugin shape consumed by `createMisina({ use: [...] })`. A plugin contributes
+ * one or both of:
+ *
+ * - `hooks` — concatenated into the instance's hook chain in plugin order.
+ * - `extend` — wraps the constructed `Misina`, optionally adding a typed
+ *   surface (`TExt`) that gets intersected onto the returned client.
+ *
+ * `TExt` must be an object literal — unions are forbidden because they would
+ * cross-product through the resulting intersection (TS performance trap).
+ *
+ * Plugins are applied left-to-right: the first plugin is innermost, the last
+ * is outermost. A wrapping plugin (e.g. circuit breaker) placed *after* a
+ * hook-only plugin will see the hook's effects on every call it admits.
+ */
+export interface MisinaPlugin<TExt extends object = {}> {
+  /** Identifier for diagnostics and duplicate detection. */
+  readonly name: string
+  /** Hooks merged into the instance hook chain. */
+  readonly hooks?: MisinaHooks
+  /** Wraps the built Misina; may add a typed surface. */
+  readonly extend?: (misina: Misina) => Misina & TExt
+}
+
+/**
+ * Tail-recursive accumulator that intersects every plugin's `TExt` onto the
+ * base `Misina` type. Tuple-destructuring keeps recursion identity stable so
+ * the TypeScript checker uses the tail-recursion fast path (depth ≤ 1000).
+ */
+export type ApplyPlugins<
+  TPlugins extends readonly MisinaPlugin<any>[],
+  TAcc = Misina,
+> = TPlugins extends readonly [
+  MisinaPlugin<infer TExt>,
+  ...infer TRest extends readonly MisinaPlugin<any>[],
+]
+  ? ApplyPlugins<TRest, TAcc & TExt>
+  : TAcc
+
+/**
  * Driver interface — pluggable transport. Drivers receive a real `Request` and
  * return a real `Response`, keeping the `Web Fetch API` shape canonical.
  */

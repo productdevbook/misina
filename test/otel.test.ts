@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { createMisina } from "../src/index.ts"
-import { withOtel, type OtelSpan, type OtelTracer } from "../src/otel/index.ts"
+import { otel, type OtelSpan, type OtelTracer } from "../src/otel/index.ts"
 
 interface RecordedSpan {
   name: string
@@ -50,14 +50,14 @@ function fakeTracer(): { tracer: OtelTracer; spans: RecordedSpan[] } {
   return { tracer, spans }
 }
 
-describe("withOtel — span lifecycle", () => {
+describe("otel — span lifecycle", () => {
   it("creates one CLIENT span per request with semconv attributes and ends it on success", async () => {
     const { tracer, spans } = fakeTracer()
     const driver = {
       name: "x",
       request: async () => new Response("{}", { status: 200 }),
     }
-    const m = withOtel(createMisina({ driver, retry: 0 }), { tracer })
+    const m = createMisina({ driver, retry: 0, use: [otel({ tracer })] })
     await m.get("https://api.example.com:8443/users/42")
     expect(spans).toHaveLength(1)
     const s = spans[0]!
@@ -80,7 +80,7 @@ describe("withOtel — span lifecycle", () => {
       name: "x",
       request: async () => new Response("nope", { status: 500 }),
     }
-    const m = withOtel(createMisina({ driver, retry: 0 }), { tracer })
+    const m = createMisina({ driver, retry: 0, use: [otel({ tracer })] })
     await expect(m.get("https://api.example.com/")).rejects.toBeDefined()
     expect(spans).toHaveLength(1)
     const s = spans[0]!
@@ -98,7 +98,7 @@ describe("withOtel — span lifecycle", () => {
         throw new TypeError("fetch failed")
       },
     }
-    const m = withOtel(createMisina({ driver, retry: 0 }), { tracer })
+    const m = createMisina({ driver, retry: 0, use: [otel({ tracer })] })
     await expect(m.get("https://api.example.com/")).rejects.toBeDefined()
     expect(spans[0]?.status?.code).toBe(2)
     expect(spans[0]?.exceptions).toHaveLength(1)
@@ -115,7 +115,7 @@ describe("withOtel — span lifecycle", () => {
         return new Response("ok", { status: 200 })
       },
     }
-    const m = withOtel(createMisina({ driver, retry: 0 }), { tracer })
+    const m = createMisina({ driver, retry: 0, use: [otel({ tracer })] })
     await m.get("https://api.example.com/")
     expect(observedTp).toBe(
       `00-${spans[0]?.spanContext.traceId}-${spans[0]?.spanContext.spanId}-01`,
@@ -132,7 +132,7 @@ describe("withOtel — span lifecycle", () => {
         return new Response("ok", { status: 200 })
       },
     }
-    const m = withOtel(createMisina({ driver, retry: 0 }), { tracer })
+    const m = createMisina({ driver, retry: 0, use: [otel({ tracer })] })
     const tp = "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01"
     await m.get("https://api.example.com/", { headers: { traceparent: tp } })
     expect(observedTp).toBe(tp)
@@ -148,9 +148,10 @@ describe("withOtel — span lifecycle", () => {
         return new Response("ok", { status: 200 })
       },
     }
-    const m = withOtel(createMisina({ driver, retry: 0 }), {
-      tracer,
-      injectTraceparent: false,
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [otel({ tracer, injectTraceparent: false })],
     })
     await m.get("https://api.example.com/")
     expect(observedTp).toBeNull()
@@ -162,10 +163,17 @@ describe("withOtel — span lifecycle", () => {
       name: "x",
       request: async () => new Response("ok", { status: 200 }),
     }
-    const m = withOtel(createMisina({ driver, retry: 0 }), {
-      tracer,
-      spanName: (req) => `http.${req.method.toLowerCase()} ${new URL(req.url).pathname}`,
-      attributes: { "deployment.environment": "test" },
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [
+        otel({
+          tracer,
+          spanName: (req: Request) =>
+            `http.${req.method.toLowerCase()} ${new URL(req.url).pathname}`,
+          attributes: { "deployment.environment": "test" },
+        }),
+      ],
     })
     await m.get("https://api.example.com/users/42")
     expect(spans[0]?.name).toBe("http.get /users/42")
@@ -178,7 +186,7 @@ describe("withOtel — span lifecycle", () => {
       name: "x",
       request: async () => new Response("ok", { status: 200 }),
     }
-    const m = withOtel(createMisina({ driver, retry: 0 }), { tracer })
+    const m = createMisina({ driver, retry: 0, use: [otel({ tracer })] })
     await Promise.all([
       m.get("https://api.example.com/a"),
       m.get("https://api.example.com/b"),

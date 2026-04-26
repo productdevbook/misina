@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { createMisina } from "../src/index.ts"
 import type { SentryHub } from "../src/sentry/index.ts"
-import { withSentry } from "../src/sentry/index.ts"
+import { sentry } from "../src/sentry/index.ts"
 
 type CaptureRecord = { error: unknown; context: Record<string, unknown> | undefined }
 type BreadcrumbRecord = { category?: string; message?: string; data?: Record<string, unknown> }
@@ -25,7 +25,7 @@ function fakeSentry(): SentryHub & {
   }
 }
 
-describe("withSentry — captureException", () => {
+describe("sentry — captureException", () => {
   it("captures HTTPError with request context + status", async () => {
     const Sentry = fakeSentry()
     const driver = {
@@ -36,7 +36,7 @@ describe("withSentry — captureException", () => {
           headers: { "x-request-id": "req_1" },
         }),
     }
-    const m = withSentry(createMisina({ driver, retry: 0 }), { Sentry })
+    const m = createMisina({ driver, retry: 0, use: [sentry({ Sentry })] })
     await expect(m.get("https://x.test/users/42")).rejects.toBeDefined()
     expect(Sentry.exceptions).toHaveLength(1)
     const ctx = Sentry.exceptions[0]?.context as {
@@ -55,18 +55,16 @@ describe("withSentry — captureException", () => {
       name: "x",
       request: async () => new Response("err", { status: 500 }),
     }
-    const m = withSentry(
-      createMisina({
-        driver,
-        retry: 0,
-        headers: {
-          authorization: "Bearer secret",
-          cookie: "session=secret",
-          "x-public": "ok",
-        },
-      }),
-      { Sentry },
-    )
+    const m = createMisina({
+      driver,
+      retry: 0,
+      headers: {
+        authorization: "Bearer secret",
+        cookie: "session=secret",
+        "x-public": "ok",
+      },
+      use: [sentry({ Sentry })],
+    })
     await expect(m.get("https://x.test/")).rejects.toBeDefined()
     const headers = (
       Sentry.exceptions[0]?.context as {
@@ -84,7 +82,7 @@ describe("withSentry — captureException", () => {
       name: "x",
       request: async () => new Response("not found", { status: 404 }),
     }
-    const m = withSentry(createMisina({ driver, retry: 0 }), { Sentry })
+    const m = createMisina({ driver, retry: 0, use: [sentry({ Sentry })] })
     await expect(m.get("https://x.test/")).rejects.toBeDefined()
     expect(Sentry.exceptions).toHaveLength(0)
   })
@@ -95,9 +93,10 @@ describe("withSentry — captureException", () => {
       name: "x",
       request: async () => new Response("not found", { status: 404 }),
     }
-    const m = withSentry(createMisina({ driver, retry: 0 }), {
-      Sentry,
-      captureLevel: "all",
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [sentry({ Sentry, captureLevel: "all" })],
     })
     await expect(m.get("https://x.test/")).rejects.toBeDefined()
     expect(Sentry.exceptions).toHaveLength(1)
@@ -111,9 +110,10 @@ describe("withSentry — captureException", () => {
         throw new TypeError("fetch failed")
       },
     }
-    const m = withSentry(createMisina({ driver, retry: 0 }), {
-      Sentry,
-      captureLevel: "5xx",
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [sentry({ Sentry, captureLevel: "5xx" })],
     })
     await expect(m.get("https://x.test/")).rejects.toBeDefined()
     expect(Sentry.exceptions).toHaveLength(0)
@@ -125,9 +125,11 @@ describe("withSentry — captureException", () => {
       name: "x",
       request: async () => new Response("err", { status: 500 }),
     }
-    const m = withSentry(createMisina({ driver, retry: 0, headers: { "x-api-key": "secret" } }), {
-      Sentry,
-      redactHeaders: ["x-api-key"],
+    const m = createMisina({
+      driver,
+      retry: 0,
+      headers: { "x-api-key": "secret" },
+      use: [sentry({ Sentry, redactHeaders: ["x-api-key"] })],
     })
     await expect(m.get("https://x.test/")).rejects.toBeDefined()
     const headers = (
@@ -139,16 +141,17 @@ describe("withSentry — captureException", () => {
   })
 })
 
-describe("withSentry — successBreadcrumb", () => {
+describe("sentry — successBreadcrumb", () => {
   it("adds a breadcrumb on successful request when enabled", async () => {
     const Sentry = fakeSentry()
     const driver = {
       name: "x",
       request: async () => new Response("{}", { headers: { "content-type": "application/json" } }),
     }
-    const m = withSentry(createMisina({ driver, retry: 0 }), {
-      Sentry,
-      successBreadcrumb: true,
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [sentry({ Sentry, successBreadcrumb: true })],
     })
     await m.get("https://x.test/")
     expect(Sentry.breadcrumbs).toHaveLength(1)
@@ -162,7 +165,7 @@ describe("withSentry — successBreadcrumb", () => {
       name: "x",
       request: async () => new Response("{}", { headers: { "content-type": "application/json" } }),
     }
-    const m = withSentry(createMisina({ driver, retry: 0 }), { Sentry })
+    const m = createMisina({ driver, retry: 0, use: [sentry({ Sentry })] })
     await m.get("https://x.test/")
     expect(Sentry.breadcrumbs).toHaveLength(0)
   })

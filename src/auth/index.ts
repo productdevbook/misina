@@ -1,14 +1,15 @@
-import type { Misina, MisinaContext } from "../types.ts"
+import type { Misina, MisinaContext, MisinaPlugin } from "../types.ts"
 
 export type TokenSource = string | (() => string | Promise<string>)
 
 /**
- * Add a `Authorization: Bearer <token>` header to every request. Token can
+ * Add an `Authorization: Bearer <token>` header to every request. Token can
  * be a string, a function, or a function returning a Promise — fetched once
  * per request.
  */
-export function withBearer(misina: Misina, source: TokenSource): Misina {
-  return misina.extend({
+export function bearer(source: TokenSource): MisinaPlugin {
+  return {
+    name: "bearer",
     hooks: {
       beforeRequest: async (ctx) => {
         const token = await resolveToken(source)
@@ -18,15 +19,16 @@ export function withBearer(misina: Misina, source: TokenSource): Misina {
         return new Request(ctx.request, { headers })
       },
     },
-  })
+  }
 }
 
 /**
- * Add a `Authorization: Basic <base64>` header. Username and password are
+ * Add an `Authorization: Basic <base64>` header. Username and password are
  * base64'd on each request — function form supported for rotation.
  */
-export function withBasic(misina: Misina, user: TokenSource, pass: TokenSource): Misina {
-  return misina.extend({
+export function basic(user: TokenSource, pass: TokenSource): MisinaPlugin {
+  return {
+    name: "basic",
     hooks: {
       beforeRequest: async (ctx) => {
         const u = await resolveToken(user)
@@ -36,7 +38,7 @@ export function withBasic(misina: Misina, user: TokenSource, pass: TokenSource):
         return new Request(ctx.request, { headers })
       },
     },
-  })
+  }
 }
 
 export interface RefreshOn401Options {
@@ -53,8 +55,11 @@ export interface RefreshOn401Options {
  * concurrent 401s share a single in-flight refresh (mutex). A retried
  * request that itself returns 401 is NOT refreshed again — it surfaces to
  * the caller so they can prompt for re-login.
+ *
+ * Uses the `extend` slot because the afterResponse hook needs a reference
+ * to the surrounding misina to dispatch the retry call.
  */
-export function withRefreshOn401(misina: Misina, opts: RefreshOn401Options): Misina {
+export function refreshOn401(opts: RefreshOn401Options): MisinaPlugin {
   let inflight: Promise<string> | undefined
   const shouldRefresh = opts.shouldRefresh ?? ((ctx) => ctx.response?.status === 401)
   // Tracks responses that came from a refresh-retry path. afterResponse
@@ -72,23 +77,27 @@ export function withRefreshOn401(misina: Misina, opts: RefreshOn401Options): Mis
     return inflight
   }
 
-  return misina.extend({
-    hooks: {
-      afterResponse: async (ctx) => {
-        if (!ctx.response) return
-        if (retriedResponses.has(ctx.response)) return
-        if (!shouldRefresh(ctx)) return
+  return {
+    name: "refreshOn401",
+    extend: (misina) =>
+      misina.extend({
+        hooks: {
+          afterResponse: async (ctx) => {
+            if (!ctx.response) return
+            if (retriedResponses.has(ctx.response)) return
+            if (!shouldRefresh(ctx)) return
 
-        const newToken = await getNewToken()
-        const headers = { ...ctx.options.headers }
-        headers["authorization"] = `Bearer ${newToken}`
+            const newToken = await getNewToken()
+            const headers = { ...ctx.options.headers }
+            headers["authorization"] = `Bearer ${newToken}`
 
-        const fresh = await fetchOnce(misina, ctx.request, headers)
-        retriedResponses.add(fresh)
-        return fresh
-      },
-    },
-  })
+            const fresh = await fetchOnce(misina, ctx.request, headers)
+            retriedResponses.add(fresh)
+            return fresh
+          },
+        },
+      }),
+  }
 }
 
 async function fetchOnce(
@@ -115,20 +124,20 @@ async function fetchOnce(
  * Read a CSRF token from a cookie and echo it as a header. Common in
  * Django/Rails/Laravel apps.
  */
-export function withCsrf(
-  misina: Misina,
+export function csrf(
   opts: {
     cookieName?: string
     headerName?: string
     /** Read cookies. Default: `document.cookie` in browser. */
     getCookies?: () => string
   } = {},
-): Misina {
+): MisinaPlugin {
   const cookieName = opts.cookieName ?? "XSRF-TOKEN"
   const headerName = opts.headerName ?? "X-XSRF-TOKEN"
   const getCookies = opts.getCookies ?? defaultGetCookies
 
-  return misina.extend({
+  return {
+    name: "csrf",
     hooks: {
       beforeRequest: (ctx) => {
         const cookies = safeCall(getCookies)
@@ -140,7 +149,7 @@ export function withCsrf(
         return new Request(ctx.request, { headers })
       },
     },
-  })
+  }
 }
 
 function defaultGetCookies(): string {

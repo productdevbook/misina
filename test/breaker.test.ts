@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { createMisina } from "../src/index.ts"
-import { CircuitOpenError, withCircuitBreaker } from "../src/breaker/index.ts"
+import { breaker, CircuitOpenError } from "../src/breaker/index.ts"
 
 function alwaysFailingDriver(status = 500) {
   return {
@@ -16,9 +16,9 @@ function okDriver() {
   }
 }
 
-describe("withCircuitBreaker — state machine", () => {
+describe("breaker — state machine", () => {
   it("starts closed and lets requests through", async () => {
-    const m = withCircuitBreaker(createMisina({ driver: okDriver(), retry: 0 }))
+    const m = createMisina({ driver: okDriver(), retry: 0, use: [breaker()] })
     expect(m.breaker.state()).toBe("closed")
 
     await m.get("https://api.test/")
@@ -26,9 +26,10 @@ describe("withCircuitBreaker — state machine", () => {
   })
 
   it("trips after failureThreshold consecutive 500s", async () => {
-    const m = withCircuitBreaker(createMisina({ driver: alwaysFailingDriver(500), retry: 0 }), {
-      failureThreshold: 3,
-      halfOpenAfter: 50,
+    const m = createMisina({
+      driver: alwaysFailingDriver(500),
+      retry: 0,
+      use: [breaker({ failureThreshold: 3, halfOpenAfter: 50 })],
     })
 
     for (let i = 0; i < 3; i++) {
@@ -38,9 +39,10 @@ describe("withCircuitBreaker — state machine", () => {
   })
 
   it("rejects fast with CircuitOpenError once open", async () => {
-    const m = withCircuitBreaker(createMisina({ driver: alwaysFailingDriver(500), retry: 0 }), {
-      failureThreshold: 2,
-      halfOpenAfter: 50,
+    const m = createMisina({
+      driver: alwaysFailingDriver(500),
+      retry: 0,
+      use: [breaker({ failureThreshold: 2, halfOpenAfter: 50 })],
     })
 
     await m.get("https://api.test/").catch(() => {})
@@ -51,8 +53,10 @@ describe("withCircuitBreaker — state machine", () => {
   })
 
   it("does NOT count 4xx as a failure (client error)", async () => {
-    const m = withCircuitBreaker(createMisina({ driver: alwaysFailingDriver(404), retry: 0 }), {
-      failureThreshold: 2,
+    const m = createMisina({
+      driver: alwaysFailingDriver(404),
+      retry: 0,
+      use: [breaker({ failureThreshold: 2 })],
     })
 
     for (let i = 0; i < 5; i++) {
@@ -71,9 +75,10 @@ describe("withCircuitBreaker — state machine", () => {
         return new Response("{}", { headers: { "content-type": "application/json" } })
       },
     }
-    const m = withCircuitBreaker(createMisina({ driver, retry: 0 }), {
-      failureThreshold: 2,
-      halfOpenAfter: 30,
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [breaker({ failureThreshold: 2, halfOpenAfter: 30 })],
     })
 
     await m.get("https://api.test/").catch(() => {})
@@ -89,9 +94,10 @@ describe("withCircuitBreaker — state machine", () => {
   })
 
   it("probe failure puts breaker back to open with fresh timer", async () => {
-    const m = withCircuitBreaker(createMisina({ driver: alwaysFailingDriver(500), retry: 0 }), {
-      failureThreshold: 2,
-      halfOpenAfter: 30,
+    const m = createMisina({
+      driver: alwaysFailingDriver(500),
+      retry: 0,
+      use: [breaker({ failureThreshold: 2, halfOpenAfter: 30 })],
     })
 
     await m.get("https://api.test/").catch(() => {})
@@ -106,8 +112,10 @@ describe("withCircuitBreaker — state machine", () => {
   })
 
   it(".breaker.trip() forces open immediately", async () => {
-    const m = withCircuitBreaker(createMisina({ driver: okDriver(), retry: 0 }), {
-      halfOpenAfter: 50,
+    const m = createMisina({
+      driver: okDriver(),
+      retry: 0,
+      use: [breaker({ halfOpenAfter: 50 })],
     })
     expect(m.breaker.state()).toBe("closed")
     m.breaker.trip()
@@ -116,7 +124,7 @@ describe("withCircuitBreaker — state machine", () => {
   })
 
   it(".breaker.reset() forces back to closed", async () => {
-    const m = withCircuitBreaker(createMisina({ driver: okDriver(), retry: 0 }))
+    const m = createMisina({ driver: okDriver(), retry: 0, use: [breaker()] })
     m.breaker.trip()
     expect(m.breaker.state()).toBe("open")
     m.breaker.reset()
@@ -127,20 +135,28 @@ describe("withCircuitBreaker — state machine", () => {
   })
 
   it("CircuitOpenError carries retryAfter ms", async () => {
-    const m = withCircuitBreaker(createMisina({ driver: okDriver(), retry: 0 }), {
-      halfOpenAfter: 1000,
+    const m = createMisina({
+      driver: okDriver(),
+      retry: 0,
+      use: [breaker({ halfOpenAfter: 1000 })],
     })
     m.breaker.trip()
-    const err = (await m.get("https://api.test/").catch((e) => e)) as CircuitOpenError
+    const err = (await m.get("https://api.test/").catch((e: unknown) => e)) as CircuitOpenError
     expect(err).toBeInstanceOf(CircuitOpenError)
     expect(err.retryAfter).toBeGreaterThan(0)
     expect(err.retryAfter).toBeLessThanOrEqual(1000)
   })
 
   it("custom isFailure overrides the 5xx-only default", async () => {
-    const m = withCircuitBreaker(createMisina({ driver: alwaysFailingDriver(404), retry: 0 }), {
-      failureThreshold: 2,
-      isFailure: ({ error }) => error != null, // count any error as failure
+    const m = createMisina({
+      driver: alwaysFailingDriver(404),
+      retry: 0,
+      use: [
+        breaker({
+          failureThreshold: 2,
+          isFailure: ({ error }: { error: Error | undefined }) => error != null,
+        }),
+      ],
     })
 
     await m.get("https://api.test/").catch(() => {})
@@ -155,8 +171,10 @@ describe("withCircuitBreaker — state machine", () => {
         throw Object.assign(new TypeError("fetch failed"), { name: "TypeError" })
       },
     }
-    const m = withCircuitBreaker(createMisina({ driver, retry: 0 }), {
-      failureThreshold: 2,
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [breaker({ failureThreshold: 2 })],
     })
 
     await m.get("https://api.test/").catch(() => {})

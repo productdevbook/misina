@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { createMisina } from "../src/index.ts"
-import { withRefreshOn401 } from "../src/auth/index.ts"
+import { refreshOn401 } from "../src/auth/index.ts"
 import { paginate } from "../src/paginate/index.ts"
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
@@ -10,7 +10,7 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   })
 }
 
-describe("withRefreshOn401 — race + recursion (Bug 47)", () => {
+describe("refreshOn401 — race + recursion (Bug 47)", () => {
   it("collapses concurrent 401s onto a single refresh call", async () => {
     let refreshCount = 0
     let token = "old"
@@ -24,7 +24,7 @@ describe("withRefreshOn401 — race + recursion (Bug 47)", () => {
       },
     }
 
-    const misina = createMisina({
+    const api = createMisina({
       driver,
       retry: 0,
       hooks: {
@@ -34,15 +34,16 @@ describe("withRefreshOn401 — race + recursion (Bug 47)", () => {
           return new Request(ctx.request, { headers })
         },
       },
-    })
-
-    const api = withRefreshOn401(misina, {
-      refresh: async () => {
-        refreshCount++
-        await new Promise((r) => setTimeout(r, 10))
-        token = "new"
-        return token
-      },
+      use: [
+        refreshOn401({
+          refresh: async () => {
+            refreshCount++
+            await new Promise((r) => setTimeout(r, 10))
+            token = "new"
+            return token
+          },
+        }),
+      ],
     })
 
     await Promise.all([
@@ -65,9 +66,11 @@ describe("withRefreshOn401 — race + recursion (Bug 47)", () => {
       },
     }
 
-    const misina = createMisina({ driver, retry: 0, throwHttpErrors: false })
-    const api = withRefreshOn401(misina, {
-      refresh: async () => "new-but-still-bad",
+    const api = createMisina({
+      driver,
+      retry: 0,
+      throwHttpErrors: false,
+      use: [refreshOn401({ refresh: async () => "new-but-still-bad" })],
     })
 
     const res = await api.get("https://api.test/x")
@@ -87,8 +90,12 @@ describe("withRefreshOn401 — race + recursion (Bug 47)", () => {
       },
     }
 
-    const misina = createMisina({ driver, retry: 0, throwHttpErrors: false })
-    const api = withRefreshOn401(misina, { refresh: async () => "new" })
+    const api = createMisina({
+      driver,
+      retry: 0,
+      throwHttpErrors: false,
+      use: [refreshOn401({ refresh: async () => "new" })],
+    })
 
     await api.get("https://api.test/x")
     expect(sawMarker).toBe(false)

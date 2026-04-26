@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { createMisina } from "../src/index.ts"
-import { memoryStore, parseCacheControl, withCache } from "../src/cache/index.ts"
+import { cache, memoryStore, parseCacheControl } from "../src/cache/index.ts"
 
 describe("parseCacheControl", () => {
   it("parses common directives", () => {
@@ -33,7 +33,7 @@ describe("parseCacheControl", () => {
   })
 })
 
-describe("withCache — RFC 5861 stale-while-revalidate", () => {
+describe("cache — RFC 5861 stale-while-revalidate", () => {
   it("serves stale entry within SWR window and revalidates in background", async () => {
     const store = memoryStore()
     let serverHits = 0
@@ -50,7 +50,7 @@ describe("withCache — RFC 5861 stale-while-revalidate", () => {
         })
       },
     }
-    const m = withCache(createMisina({ driver, retry: 0 }), { store, ttl: 0 })
+    const m = createMisina({ driver, retry: 0, use: [cache({ store, ttl: 0 })] })
     // Prime the cache.
     await m.get("https://x.test/")
     expect(serverHits).toBe(1)
@@ -85,7 +85,7 @@ describe("withCache — RFC 5861 stale-while-revalidate", () => {
   })
 })
 
-describe("withCache — RFC 5861 stale-if-error", () => {
+describe("cache — RFC 5861 stale-if-error", () => {
   it("serves cached entry when origin returns 5xx within SIE window", async () => {
     const store = memoryStore()
     let firstCall = true
@@ -105,7 +105,7 @@ describe("withCache — RFC 5861 stale-if-error", () => {
         return new Response("boom", { status: 503 })
       },
     }
-    const m = withCache(createMisina({ driver, retry: 0 }), { store, ttl: 0 })
+    const m = createMisina({ driver, retry: 0, use: [cache({ store, ttl: 0 })] })
     await m.get("https://x.test/")
     await new Promise((r) => setTimeout(r, 5))
 
@@ -133,7 +133,7 @@ describe("withCache — RFC 5861 stale-if-error", () => {
         return new Response("nope", { status: 404 })
       },
     }
-    const m = withCache(createMisina({ driver, retry: 0 }), { store, ttl: 0 })
+    const m = createMisina({ driver, retry: 0, use: [cache({ store, ttl: 0 })] })
     await m.get("https://x.test/")
     await new Promise((r) => setTimeout(r, 5))
 
@@ -141,7 +141,7 @@ describe("withCache — RFC 5861 stale-if-error", () => {
   })
 })
 
-describe("withCache — RFC 8246 immutable", () => {
+describe("cache — RFC 8246 immutable", () => {
   it("skips conditional revalidation when entry is immutable", async () => {
     const store = memoryStore()
     let calls = 0
@@ -164,7 +164,7 @@ describe("withCache — RFC 8246 immutable", () => {
         })
       },
     }
-    const m = withCache(createMisina({ driver, retry: 0 }), { store, ttl: 0 })
+    const m = createMisina({ driver, retry: 0, use: [cache({ store, ttl: 0 })] })
     await m.get("https://x.test/")
     await new Promise((r) => setTimeout(r, 5))
 

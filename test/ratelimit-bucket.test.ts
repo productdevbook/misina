@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { createMisina } from "../src/index.ts"
-import { withRateLimit } from "../src/ratelimit/index.ts"
+import { rateLimit } from "../src/ratelimit/index.ts"
 
 function recordingDriver(responses: Response[]) {
   let i = 0
@@ -18,10 +18,10 @@ function ok(): Response {
   return new Response("{}", { headers: { "content-type": "application/json" } })
 }
 
-describe("withRateLimit — RPM bucket", () => {
+describe("rateLimit — RPM bucket", () => {
   it("infinite default lets all requests through immediately", async () => {
     const driver = recordingDriver([ok(), ok(), ok()])
-    const m = withRateLimit(createMisina({ driver, retry: 0 }))
+    const m = createMisina({ driver, retry: 0, use: [rateLimit()] })
     await Promise.all([
       m.get("https://x.test/"),
       m.get("https://x.test/"),
@@ -32,7 +32,7 @@ describe("withRateLimit — RPM bucket", () => {
 
   it("starts full — first N requests up to capacity dispatch immediately", async () => {
     const driver = recordingDriver([ok(), ok(), ok(), ok(), ok()])
-    const m = withRateLimit(createMisina({ driver, retry: 0 }), { rpm: 600 })
+    const m = createMisina({ driver, retry: 0, use: [rateLimit({ rpm: 600 })] })
     const start = Date.now()
     await Promise.all([
       m.get("https://x.test/"),
@@ -59,7 +59,7 @@ describe("withRateLimit — RPM bucket", () => {
         return ok()
       },
     }
-    const m = withRateLimit(createMisina({ driver, retry: 0 }), { rpm: 600 }) // 10/sec
+    const m = createMisina({ driver, retry: 0, use: [rateLimit({ rpm: 600 })] }) // 10/sec
     await m.get("https://x.test/") // remaining=0 set
     // Linear refill at 10/sec → ~100ms wait for the next acquire.
     const start = Date.now()
@@ -79,8 +79,11 @@ describe("withRateLimit — RPM bucket", () => {
         return ok()
       },
     }
-    const m = withRateLimit(createMisina({ driver, retry: 0, throwHttpErrors: false }), {
-      rpm: 6000,
+    const m = createMisina({
+      driver,
+      retry: 0,
+      throwHttpErrors: false,
+      use: [rateLimit({ rpm: 6000 })],
     })
     await m.get("https://x.test/") // 429 → drains
     const start = Date.now()
@@ -109,7 +112,7 @@ describe("withRateLimit — RPM bucket", () => {
         return ok()
       },
     }
-    const m = withRateLimit(createMisina({ driver, retry: 0 }), { rpm: 60 })
+    const m = createMisina({ driver, retry: 0, use: [rateLimit({ rpm: 60 })] })
     await m.get("https://x.test/")
     // Now the bucket is bypassed until ~60s from now. Second request should
     // queue; abort should reject it quickly.
@@ -120,19 +123,25 @@ describe("withRateLimit — RPM bucket", () => {
   })
 })
 
-describe("withRateLimit — TPM bucket", () => {
+describe("rateLimit — TPM bucket", () => {
   it("estimateTokens gates the second request when TPM is exhausted", async () => {
     // Simpler check: verify the limiter doesn't crash + estimateTokens
     // is called on the request. Full timing verified in the 429 test.
     let estimateCalls = 0
     const driver = recordingDriver([ok(), ok()])
-    const m = withRateLimit(createMisina({ driver, retry: 0 }), {
-      tpm: 10_000,
-      estimateTokens: (req) => {
-        estimateCalls++
-        void req
-        return 100
-      },
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [
+        rateLimit({
+          tpm: 10_000,
+          estimateTokens: (req: Request) => {
+            estimateCalls++
+            void req
+            return 100
+          },
+        }),
+      ],
     })
     await m.get("https://x.test/")
     await m.get("https://x.test/")

@@ -24,19 +24,25 @@
  *
  * @example
  * ```ts
- * import { withMessageSignature } from "misina/auth/signed"
+ * import { createMisina } from "misina"
+ * import { messageSignature } from "misina/auth/signed"
  *
  * const keyPair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"])
- * const api = withMessageSignature(createMisina({ baseURL }), {
- *   keyId: "my-key",
- *   privateKey: keyPair.privateKey,
- *   algorithm: "ed25519",
- *   components: ["@method", "@target-uri", "content-type", "content-digest"],
+ * const api = createMisina({
+ *   baseURL,
+ *   use: [
+ *     messageSignature({
+ *       keyId: "my-key",
+ *       privateKey: keyPair.privateKey,
+ *       algorithm: "ed25519",
+ *       components: ["@method", "@target-uri", "content-type", "content-digest"],
+ *     }),
+ *   ],
  * })
  * ```
  */
 
-import type { Misina } from "../types.ts"
+import type { MisinaPlugin } from "../types.ts"
 
 export type MessageSignatureAlgorithm =
   | "ed25519"
@@ -84,17 +90,17 @@ const DEFAULT_COMPONENTS: readonly string[] = [
 ]
 
 /**
- * Wrap a Misina with automatic RFC 9421 signing on every outgoing
- * request. The hook builds the signature base, signs it with the
- * caller's key, and writes `Signature-Input` + `Signature` to the
- * request headers.
+ * Sign every outgoing request per RFC 9421. The hook builds the signature
+ * base, signs it with the caller's key, and writes `Signature-Input` +
+ * `Signature` to the request headers.
  */
-export function withMessageSignature(misina: Misina, options: MessageSignatureOptions): Misina {
-  return misina.extend({
+export function messageSignature(options: MessageSignatureOptions): MisinaPlugin {
+  return {
+    name: "messageSignature",
     hooks: {
       beforeRequest: async (ctx) => signRequest(ctx.request, options),
     },
-  })
+  }
 }
 
 /**

@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest"
 import { createMisina } from "../src/index.ts"
-import { DigestMismatchError, verifyDigest, withDigest } from "../src/digest/index.ts"
+import { digestAuth, DigestMismatchError, verifyDigest } from "../src/digest/index.ts"
 
 // RFC 9530 §6 example: sha-256 of `{"hello": "world"}` (with the
 // space) is X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=
 const RFC9530_BODY = '{"hello": "world"}'
 const RFC9530_SHA256 = "X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE="
 
-describe("withDigest — outgoing", () => {
+describe("digestAuth — outgoing", () => {
   it("adds Content-Digest with the RFC 9530 §6 sha-256 vector", async () => {
     let captured: Headers | undefined
     const driver = {
@@ -17,7 +17,7 @@ describe("withDigest — outgoing", () => {
         return new Response("ok", { status: 200 })
       },
     }
-    const m = withDigest(createMisina({ driver, retry: 0 }))
+    const m = createMisina({ driver, retry: 0, use: [digestAuth()] })
     await m.post("https://x.test/", RFC9530_BODY, {
       headers: { "content-type": "application/json" },
     })
@@ -33,7 +33,7 @@ describe("withDigest — outgoing", () => {
         return new Response("ok", { status: 200 })
       },
     }
-    const m = withDigest(createMisina({ driver, retry: 0 }), { field: "repr-digest" })
+    const m = createMisina({ driver, retry: 0, use: [digestAuth({ field: "repr-digest" })] })
     await m.post("https://x.test/", RFC9530_BODY, {
       headers: { "content-type": "application/json" },
     })
@@ -50,7 +50,7 @@ describe("withDigest — outgoing", () => {
         return new Response("ok", { status: 200 })
       },
     }
-    const m = withDigest(createMisina({ driver, retry: 0 }), { algorithm: "sha-512" })
+    const m = createMisina({ driver, retry: 0, use: [digestAuth({ algorithm: "sha-512" })] })
     await m.post("https://x.test/", RFC9530_BODY)
     const v = captured?.get("content-digest")
     expect(v).toMatch(/^sha-512=:[A-Za-z0-9+/=]+:$/)
@@ -65,7 +65,7 @@ describe("withDigest — outgoing", () => {
         return new Response("ok", { status: 200 })
       },
     }
-    const m = withDigest(createMisina({ driver, retry: 0 }))
+    const m = createMisina({ driver, retry: 0, use: [digestAuth()] })
     await m.get("https://x.test/")
     expect(captured?.get("content-digest")).toBeNull()
   })
@@ -79,7 +79,7 @@ describe("withDigest — outgoing", () => {
         return new Response("ok", { status: 200 })
       },
     }
-    const m = withDigest(createMisina({ driver, retry: 0 }))
+    const m = createMisina({ driver, retry: 0, use: [digestAuth()] })
     await m.post("https://x.test/", RFC9530_BODY, {
       headers: { "content-type": "application/json" },
     })
@@ -95,7 +95,7 @@ describe("withDigest — outgoing", () => {
         return new Response("ok", { status: 200 })
       },
     }
-    const m = withDigest(createMisina({ driver, retry: 0 }))
+    const m = createMisina({ driver, retry: 0, use: [digestAuth()] })
     await m.post("https://x.test/", RFC9530_BODY, {
       headers: { "content-digest": "md5=:abc:" },
     })

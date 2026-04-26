@@ -1,4 +1,4 @@
-import type { Misina } from "../types.ts"
+import type { MisinaPlugin } from "../types.ts"
 
 export interface CookieJar {
   getCookieString: (url: string) => string | Promise<string>
@@ -56,11 +56,12 @@ export class MemoryCookieJar implements CookieJar {
 }
 
 /**
- * Wrap a Misina instance with a cookie jar. Adds a Cookie header on every
- * request matching the URL; reads `Set-Cookie` from responses and stores them.
+ * Plugin that adds a `Cookie` header on every request matching the URL and
+ * reads `Set-Cookie` from responses to populate the jar.
  */
-export function withCookieJar(misina: Misina, jar: CookieJar): Misina {
-  return misina.extend({
+export function cookieJar(jar: CookieJar): MisinaPlugin {
+  return {
+    name: "cookieJar",
     hooks: {
       beforeRequest: async (ctx) => {
         const cookieString = await jar.getCookieString(ctx.request.url)
@@ -109,7 +110,7 @@ export function withCookieJar(misina: Misina, jar: CookieJar): Misina {
         }
       },
     },
-  })
+  }
 }
 
 function parseSetCookie(header: string, url: string): StoredCookie | undefined {
