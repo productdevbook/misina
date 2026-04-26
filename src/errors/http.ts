@@ -43,6 +43,24 @@ export class HTTPError<T = unknown> extends MisinaError {
     this.data = data
     this.problem = problem
   }
+
+  override toJSON(): Record<string, unknown> {
+    const base = super.toJSON()
+    return {
+      ...base,
+      status: this.status,
+      statusText: this.statusText,
+      request: { method: this.request.method, url: this.request.url },
+      response: {
+        status: this.response.status,
+        statusText: this.response.statusText,
+        url: this.response.url,
+        headers: Object.fromEntries(this.response.headers),
+      },
+      data: this.data,
+      problem: this.problem,
+    }
+  }
 }
 
 function extractProblem(response: Response, data: unknown): ProblemDetails | undefined {

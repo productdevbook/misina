@@ -14,4 +14,27 @@ export class MisinaError extends Error {
       )
     }
   }
+
+  /**
+   * Structured serialization — pino / winston / bunyan / @std/log all call
+   * this. Returns a plain object safe for `JSON.stringify`. Includes the
+   * `cause` chain when present.
+   */
+  toJSON(): Record<string, unknown> {
+    return {
+      name: this.name,
+      message: this.message,
+      stack: this.stack,
+      cause: serializeCause(this.cause),
+    }
+  }
+}
+
+function serializeCause(cause: unknown): unknown {
+  if (cause == null) return undefined
+  if (cause instanceof MisinaError) return cause.toJSON()
+  if (cause instanceof Error) {
+    return { name: cause.name, message: cause.message, stack: cause.stack }
+  }
+  return cause
 }
