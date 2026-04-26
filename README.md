@@ -75,8 +75,8 @@
 - **Streaming** — built-in SSE (WHATWG HTML §9.2 compliant) and NDJSON helpers.
 - **HTTP cache** — RFC 9111 compliant: `Cache-Control: no-store` / `max-age`, ETag / Last-Modified revalidation, `Vary` per-variant keying.
 - **Cookie jar** — RFC 6265 compliant: domain match check, Path matching, Secure flag, Max-Age / Expires.
-- **661 tests** across 90 files, exhaustively covering specs and edge cases.
-- **Subpath helpers**: `auth`, `breaker`, `cache`, `cookie`, `dedupe`, `paginate`, `poll`, `ratelimit`, `stream`, `test`, `tracing`.
+- **789 tests** across 110 files, exhaustively covering specs and edge cases.
+- **Subpath helpers**: `auth`, `auth/oauth`, `beacon`, `breaker`, `cache`, `cookie`, `dedupe`, `digest`, `graphql`, `hedge`, `paginate`, `poll`, `ratelimit`, `runtime/{bun,cloudflare,deno,next}`, `sentry`, `stream`, `test`, `tracing`, `transfer`.
 - **Idempotency-Key on retry** (RFC draft) — `idempotencyKey: 'auto'` sends a `crypto.randomUUID()` for retried mutations. No competitor ships this.
 - **RFC 9457 problem+json** parsed onto `HTTPError.problem` automatically.
 - **Circuit breaker** (`misina/breaker`) — Polly-shaped state machine, zero deps.
@@ -92,6 +92,16 @@
 - **`Server-Timing` parser** — `MisinaResponse.serverTimings` populated automatically.
 - **W3C Trace Context** (`misina/tracing`) — `withTracing()` injects `traceparent` + `tracestate` + optional Baggage.
 - **Rate-limit header parser** (`misina/ratelimit`) — handles OpenAI / Anthropic / IETF draft styles, normalizes reset values to `Date`.
+- **HTTP cache extras** — RFC 5861 `stale-while-revalidate` + `stale-if-error`, RFC 8246 `immutable`, plus an RFC 9211 `parseCacheStatus()` helper backed by the Structured Field Values parser.
+- **SSE reconnect** — `sseStreamReconnecting()` honors `Last-Event-ID`, the server's `retry:` field, and exponential backoff across disconnects (HTML §9.2.4).
+- **Request body compression** — opt-in `compressRequestBody: 'gzip' | 'deflate'` symmetrical with the response-side `decompress` knob.
+- **Cookie jar across redirects** — `Set-Cookie` issued by intermediate 30x hops is persisted (login flows that set the session on the redirect).
+- **Manual `composeSignals`** — fixes the Node #57736 listener-leak when long-lived AbortSignals are shared across many requests.
+- **RFC 9530 digest** (`misina/digest`) — `withDigest()` adds `Content-Digest` / `Repr-Digest` automatically; `verifyDigest()` validates incoming responses.
+- **Resumable transfers** (`misina/transfer`) — `downloadResumable()` is Range-aware with per-chunk retries; `uploadResumable()` follows draft-ietf-httpbis-resumable-upload (POST + PATCH with `Upload-Offset`).
+- **OAuth helpers** (`misina/auth/oauth`) — `withJwtRefresh()` peeks `exp` and refreshes preemptively (single-flight); `createPkcePair()` + `exchangePkceCode()` for PKCE flows.
+- **VCR-lite test helpers** — `record()` + `recordToJSON()` + `replayFromJSON()` round-trip cassettes; `harToCassette()` imports HAR; `coverage()` flags unused routes; `randomStatus` / `randomNetworkError` for chaos; `misinaCallSerializer` redacts volatile headers in Vitest snapshots.
+- **Typed runtime knobs** — `misina/runtime/{bun,deno,cloudflare,next}` augment `MisinaOptions` with runtime-specific fields (`tls`, `client`, `cf`, `next`).
 
 ## Install
 
@@ -452,6 +462,39 @@ const t = createTestMisina({
 await t.client.get("https://api.test/users/42")
 expect(t.calls).toHaveLength(1)
 expect(t.lastCall().method).toBe("GET")
+
+// Coverage report — which routes were actually exercised?
+const cov = t.coverage()
+//        ^? { matched: string[]; unused: string[]; unmatched: MockCall[] }
+
+// Chaos handlers
+import { randomStatus, randomNetworkError } from "misina/test"
+createTestMisina({
+  routes: {
+    "GET /flaky": randomStatus([200, 200, 503]),
+    "GET /down": randomNetworkError("connection reset"),
+  },
+})
+
+// Record / replay (VCR-lite, no fs dep)
+import { record, recordToJSON, replayFromJSON, harToCassette } from "misina/test"
+
+// 1. Record against a real driver, save the cassette
+const real = createMisina({ baseURL })
+const { client, calls } = record(real)
+await runTests(client)
+const cassette = await recordToJSON(calls)
+fs.writeFileSync("fixtures.json", JSON.stringify(cassette))
+
+// 2. Replay forever (or import a HAR exported by Chrome / Playwright)
+const handler = replayFromJSON(JSON.parse(fs.readFileSync("fixtures.json", "utf8")))
+//          or replayFromJSON(harToCassette(harJson))
+const t2 = createTestMisina({ routes: { "GET /:p": handler } })
+
+// Vitest snapshot serializer (redacts authorization, idempotency-key,
+// traceparent, etc. so snapshots compare cleanly across runs).
+import { misinaCallSerializer } from "misina/test"
+expect.addSnapshotSerializer(misinaCallSerializer())
 ```
 
 ### misina/auth
@@ -485,13 +528,26 @@ await api.get("/profile") // Cookie sent automatically
 ### misina/cache
 
 ```ts
-import { withCache, memoryStore } from "misina/cache"
+import { withCache, memoryStore, parseCacheControl, parseCacheStatus } from "misina/cache"
 
 const api = withCache(createMisina({ baseURL }), {
   store: memoryStore({ max: 500 }),
   ttl: 60_000,
   revalidate: true, // ETag / Last-Modified → 304 → reuse
+  honorCacheControl: true, // max-age, s-w-r, s-i-e, immutable, no-store
 })
+
+// RFC 9111 + RFC 5861 + RFC 8246 directives are honored:
+// - `Cache-Control: stale-while-revalidate=N` → serve stale + revalidate in background
+// - `Cache-Control: stale-if-error=N` → serve stale on 5xx within window
+// - `Cache-Control: immutable` → skip ETag/If-None-Match revalidation
+
+// Standalone helpers (no Misina required):
+const cc = parseCacheControl(res.headers.get("cache-control"))
+//        ^? { maxAge?: number; staleWhileRevalidate?: number; immutable?: boolean; ... }
+
+const status = parseCacheStatus(res.headers.get("cache-status")) // RFC 9211
+//            ^? Array<{ cache: string; hit?: boolean; fwd?: string; ttl?: number; ... }>
 ```
 
 ### misina/dedupe
@@ -555,7 +611,7 @@ const result = await followAccepted<JobResult>(misina, {
 ### misina/stream
 
 ```ts
-import { sseStream, ndjsonStream } from "misina/stream"
+import { sseStream, ndjsonStream, sseStreamReconnecting } from "misina/stream"
 
 const res = await api.get("/events", { responseType: "stream" })
 for await (const event of sseStream(res.raw)) {
@@ -565,6 +621,16 @@ for await (const event of sseStream(res.raw)) {
 const res2 = await api.get("/feed.ndjson", { responseType: "stream" })
 for await (const item of ndjsonStream<Item>(res2.raw)) {
   console.log(item)
+}
+
+// Long-running SSE: reconnects across disconnects, sets Last-Event-ID,
+// honors the server's `retry:` field, exponential backoff fallback
+// (HTML §9.2.4 EventSource semantics).
+for await (const event of sseStreamReconnecting(api, "/notifications", {
+  reconnectDelayMs: 1_000,
+  maxDelayMs: 60_000,
+})) {
+  console.log(event.id, event.data)
 }
 ```
 
@@ -709,8 +775,119 @@ import "misina/runtime/cloudflare"
 await api.get("/asset", { cf: { cacheTtl: 86_400, cacheEverything: true } })
 ```
 
-Same augmentation surface (`MisinaRuntimeOptions`) is reserved for
-future `runtime/bun` and `runtime/deno` subpaths.
+### misina/runtime/bun
+
+```ts
+import "misina/runtime/bun"
+
+await api.get("/upstream", {
+  tls: { rejectUnauthorized: false, serverName: "internal.test" },
+  proxy: "http://corp:3128",
+  unix: "/var/run/api.sock",
+  verbose: true,
+})
+```
+
+`tls`, `proxy`, `unix`, `verbose` are forwarded opaquely to Bun's
+`fetch`.
+
+### misina/runtime/deno
+
+```ts
+import "misina/runtime/deno"
+
+const client = Deno.createHttpClient({ caCerts: [pem] })
+await api.get("/upstream", { client })
+```
+
+`client` is forwarded as `init.client` so Deno's `fetch` uses your
+custom `Deno.HttpClient` (custom CA bundles, mTLS, proxies, HTTP/2
+pool tweaks).
+
+### misina/digest
+
+`withDigest(misina, opts?)` automatically adds `Content-Digest` (RFC 9530) on outgoing requests with a body. `verifyDigest(response)`
+validates an incoming response and throws `DigestMismatchError` on
+failure.
+
+```ts
+import { withDigest, verifyDigest } from "misina/digest"
+
+const api = withDigest(createMisina({ baseURL }), { algorithm: "sha-256" })
+const res = await api.post("/upload", body) // Content-Digest: sha-256=:...:
+
+await verifyDigest(res.raw) // throws DigestMismatchError on mismatch
+```
+
+`sha-256` and `sha-512` supported via Web Crypto. `Repr-Digest`
+available via `field: "repr-digest"`.
+
+### misina/transfer
+
+Two helpers for moving large files:
+
+```ts
+import { downloadResumable, uploadResumable } from "misina/transfer"
+
+// Range-aware download, resumes after network failure per chunk.
+const { blob } = await downloadResumable(misina, "/files/big.bin", {
+  chunkSize: 4 * 1024 * 1024,
+  onProgress: ({ loaded, total }) => render(loaded, total),
+})
+
+// draft-ietf-httpbis-resumable-upload: POST opens, PATCH chunks,
+// HEAD recovers the offset to resume.
+const { uploadUrl } = await uploadResumable(misina, "/uploads", file, {
+  chunkSize: 4 * 1024 * 1024,
+  onProgress: ({ loaded, total }) => render(loaded, total),
+})
+```
+
+Range download falls back to a single streaming GET when the server
+doesn't advertise `Accept-Ranges: bytes`. Resumable upload reissues
+`HEAD <uploadUrl>` to recover the server-known offset when
+`uploadUrl` is provided from a previous attempt.
+
+### misina/auth/oauth
+
+```ts
+import { createPkcePair, exchangePkceCode, withJwtRefresh } from "misina/auth/oauth"
+
+// 1. PKCE flow
+const pair = await createPkcePair() // { verifier, challenge, method: 'S256' }
+window.location = `${authEndpoint}?response_type=code&code_challenge=${pair.challenge}&code_challenge_method=S256&...`
+// callback:
+const tokens = await exchangePkceCode(misina, {
+  tokenEndpoint,
+  clientId,
+  redirectUri,
+  code,
+  verifier: pair.verifier,
+})
+
+// 2. Proactive refresh (peeks JWT exp, single-flight under load)
+const api = withJwtRefresh(misina, {
+  getToken: () => store.token,
+  refresh: async () => {
+    const t = await refreshTokens()
+    store.token = t.access_token
+    return t.access_token
+  },
+  expiryWindowMs: 30_000,
+})
+```
+
+### misina/sentry / misina/beacon / misina/graphql / misina/hedge
+
+`withSentry(misina, { Sentry })` captures HTTPError + NetworkError +
+TimeoutError with the originating request as Sentry context (no peer
+dep — pass any `{ captureException, addBreadcrumb? }` shape).
+`fireAndForget(misina, url, body)` is a fetchLater → keepalive →
+sendBeacon three-tier helper for telemetry on page unload.
+`withGraphql(misina, { endpoint })` adds `query`, `mutate`, and APQ
+(automatic persisted queries via SHA-256). `hedge(misina, path,
+{ endpoints, delayMs })` races a request across multiple endpoints
+and aborts the losers when the first one returns.
 
 ## Server-Timing
 
