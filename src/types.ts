@@ -1,4 +1,4 @@
-export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS"
+export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS" | "QUERY"
 
 export type ResponseType = "json" | "text" | "arrayBuffer" | "blob" | "stream"
 
@@ -366,6 +366,16 @@ export interface Misina {
   delete: <T = unknown>(url: string, init?: MisinaRequestInit) => MisinaResponsePromise<T>
   head: <T = unknown>(url: string, init?: MisinaRequestInit) => MisinaResponsePromise<T>
   options: <T = unknown>(url: string, init?: MisinaRequestInit) => MisinaResponsePromise<T>
+  /**
+   * HTTP `QUERY` method (IETF draft-ietf-httpbis-safe-method-w-body) — a safe,
+   * idempotent verb that carries a request body. Useful for complex search
+   * filters that don't fit cleanly in a query string.
+   */
+  query: <T = unknown>(
+    url: string,
+    body?: unknown,
+    init?: MisinaRequestInit,
+  ) => MisinaResponsePromise<T>
 }
 
 /**

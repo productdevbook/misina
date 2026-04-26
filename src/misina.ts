@@ -300,6 +300,7 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
     delete: bind("DELETE"),
     head: bind("HEAD"),
     options: bind("OPTIONS"),
+    query: bindWithBody("QUERY"),
   }
 
   return misina
@@ -517,7 +518,7 @@ async function applyDefer(
   // (we don't change url after defer for now — defer is for headers/timing primarily)
 }
 
-const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "OPTIONS", "PUT"])
+const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "OPTIONS", "PUT", "QUERY"])
 
 function applyIdempotencyKey(request: Request, options: MisinaResolvedOptions): Request {
   const policy = options.idempotencyKey

@@ -1,6 +1,6 @@
 import type { HttpMethod, MisinaResolvedOptions, ResolvedRetry } from "./types.ts"
 
-const DEFAULT_METHODS: HttpMethod[] = ["GET", "PUT", "HEAD", "DELETE", "OPTIONS"]
+const DEFAULT_METHODS: HttpMethod[] = ["GET", "PUT", "HEAD", "DELETE", "OPTIONS", "QUERY"]
 const DEFAULT_STATUS: number[] = [408, 413, 429, 500, 502, 503, 504]
 const DEFAULT_AFTER_STATUS: number[] = [413, 429, 503]
 
