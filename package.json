@@ -102,6 +102,10 @@
       "types": "./dist/auth/oauth.d.mts",
       "default": "./dist/auth/oauth.mjs"
     },
+    "./auth/sigv4": {
+      "types": "./dist/auth/sigv4.d.mts",
+      "default": "./dist/auth/sigv4.mjs"
+    },
     "./cookie": {
       "types": "./dist/cookie/index.d.mts",
       "default": "./dist/cookie/index.mjs"

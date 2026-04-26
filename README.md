@@ -51,6 +51,7 @@
   - [misina/digest](#misinadigest)
   - [misina/transfer](#misinatransfer)
   - [misina/auth/oauth](#misinaauthoauth)
+  - [misina/auth/sigv4](#misinaauthsigv4)
   - [misina/sentry / beacon / graphql / hedge](#misinasentry--beacon--graphql--hedge)
 - [Idempotency-Key](#idempotency-key)
 - [RFC 9457 problem+json](#rfc-9457-problemjson)
@@ -106,6 +107,7 @@
 - **RFC 9530 digest** (`misina/digest`) — `withDigest()` adds `Content-Digest` / `Repr-Digest` automatically; `verifyDigest()` validates incoming responses.
 - **Resumable transfers** (`misina/transfer`) — `downloadResumable()` is Range-aware with per-chunk retries; `uploadResumable()` follows draft-ietf-httpbis-resumable-upload (POST + PATCH with `Upload-Offset`).
 - **OAuth helpers** (`misina/auth/oauth`) — `withJwtRefresh()` peeks `exp` and refreshes preemptively (single-flight); `createPkcePair()` + `exchangePkceCode()` for PKCE flows.
+- **AWS SigV4 signer** (`misina/auth/sigv4`) — `withSigV4()` adds `Authorization: AWS4-HMAC-SHA256 ...` + `x-amz-date` + `x-amz-content-sha256` to every request via Web Crypto. No `@aws-sdk/*` peer dep.
 - **VCR-lite test helpers** — `record()` + `recordToJSON()` + `replayFromJSON()` round-trip cassettes; `harToCassette()` imports HAR; `coverage()` flags unused routes; `randomStatus` / `randomNetworkError` for chaos; `misinaCallSerializer` redacts volatile headers in Vitest snapshots.
 - **Typed runtime knobs** — `misina/runtime/{bun,deno,cloudflare,next}` augment `MisinaOptions` with runtime-specific fields (`tls`, `client`, `cf`, `next`).
 
@@ -882,6 +884,31 @@ const api = withJwtRefresh(misina, {
   expiryWindowMs: 30_000,
 })
 ```
+
+### misina/auth/sigv4
+
+```ts
+import { withSigV4 } from "misina/auth/sigv4"
+
+const api = withSigV4(
+  createMisina({
+    baseURL: "https://bedrock-runtime.us-east-1.amazonaws.com",
+  }),
+  {
+    service: "bedrock-runtime",
+    region: "us-east-1",
+    credentials: async () => fromEnvOrIam(), // any provider returning { accessKeyId, secretAccessKey, sessionToken? }
+  },
+)
+
+// Every request now carries Authorization: AWS4-HMAC-SHA256 ...,
+// x-amz-date, x-amz-content-sha256, and (when present) x-amz-security-token.
+```
+
+Streaming uploads: pass `unsignedPayload: true` to use
+`x-amz-content-sha256: UNSIGNED-PAYLOAD` instead of buffering the body
+to hash it. `signRequest(request, opts)` is exported separately for
+one-off signing without wrapping the misina instance.
 
 ### misina/sentry / misina/beacon / misina/graphql / misina/hedge
 
