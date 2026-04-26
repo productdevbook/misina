@@ -31,6 +31,18 @@ export interface CacheOptions {
    * `ttl` option for that entry. Default: true.
    */
   honorCacheControl?: boolean
+  /**
+   * Decide whether to cache a given response. Receives the request and the
+   * response that's about to be cached; return `false` to skip storing.
+   * Useful to filter out 5xx, error envelopes, or sensitive paths.
+   */
+  shouldStore?: (request: Request, response: Response) => boolean
+  /**
+   * Mutate a cache entry before it's stored. Receives the entry; return a
+   * replacement or `undefined` to abandon caching this entry. Use to scrub
+   * secrets, denormalize, or attach metadata.
+   */
+  beforeStore?: (entry: CacheEntry) => CacheEntry | undefined | Promise<CacheEntry | undefined>
 }
 
 /** In-memory LRU-ish cache (no eviction by default — pair with `max`). */
@@ -114,6 +126,9 @@ export function withCache(misina: Misina, opts: CacheOptions = {}): Misina {
         const cacheControl = ctx.response.headers.get("cache-control") ?? ""
         if (/(?:^|,)\s*no-store\b/i.test(cacheControl)) return
 
+        // User filter — opt out of storing this response entirely.
+        if (opts.shouldStore && !opts.shouldStore(ctx.request, ctx.response)) return
+
         // RFC 9111 §5.2.1.1: max-age overrides our TTL when honored.
         let entryTtl = ttl
         if (honorCacheControl) {
@@ -124,12 +139,19 @@ export function withCache(misina: Misina, opts: CacheOptions = {}): Misina {
         const cloned = ctx.response.clone()
         const vary = recordVaryHeaders(ctx.response, ctx.request)
 
-        const entry: CacheEntry = {
+        let entry: CacheEntry = {
           response: cloned,
           expires: Date.now() + entryTtl,
           etag: ctx.response.headers.get("etag") ?? undefined,
           lastModified: ctx.response.headers.get("last-modified") ?? undefined,
           vary,
+        }
+
+        // User mutator — last hook before write. Returning undefined skips.
+        if (opts.beforeStore) {
+          const out = await opts.beforeStore(entry)
+          if (!out) return
+          entry = out
         }
 
         if (vary && !("*" in vary)) {
