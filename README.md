@@ -58,6 +58,7 @@
   - [misina/beacon](#misinabeacon)
   - [misina/graphql](#misinagraphql)
   - [misina/hedge](#misinahedge)
+- [Recipes](#recipes)
 - [Benchmarks](#benchmarks)
 - [Idempotency-Key](#idempotency-key)
 - [RFC 9457 problem+json](#rfc-9457-problemjson)
@@ -1101,6 +1102,213 @@ for (const t of r.serverTimings) {
 import { parseServerTiming } from "misina"
 const entries = parseServerTiming(headers.get("server-timing"))
 ```
+
+## Recipes
+
+Misina composes with the modern web framework stack — every recipe
+below is end-to-end (no extra glue beyond what's shown).
+
+### TanStack Query
+
+```ts
+import { QueryClient, useQuery } from "@tanstack/react-query"
+import { createMisina, HTTPError } from "misina"
+
+const api = createMisina({ baseURL: "/api", retry: 0 })
+
+function useUser(id: string) {
+  return useQuery<User, HTTPError<{ message: string }>>({
+    queryKey: ["user", id],
+    queryFn: ({ signal }) => api.get<User>(`/users/${id}`, { signal }).then((r) => r.data),
+  })
+}
+```
+
+`signal` from TanStack cancels the request when the component unmounts
+or the query is invalidated. Errors come back already typed as
+`HTTPError<E>` so the error UI can branch on `error.status` /
+`error.problem` / `error.requestId`.
+
+### SWR
+
+```ts
+import useSWR from "swr"
+import { createMisina } from "misina"
+
+const api = createMisina({ baseURL: "/api" })
+const fetcher = <T>(url: string): Promise<T> => api.get<T>(url).then((r) => r.data)
+
+function User({ id }: { id: string }) {
+  const { data, error } = useSWR<User>(`/users/${id}`, fetcher)
+  // ...
+}
+```
+
+For Suspense + ErrorBoundary mode, return the promise directly:
+`fetcher: (u) => api.get(u).then((r) => r.data)`. SWR's deduplication
+pairs naturally with `misina/dedupe` when the same misina instance is
+shared across hooks.
+
+### Next.js App Router
+
+```ts
+// app/lib/api.ts
+import "misina/runtime/next" // type-only augmentation for { next: { revalidate, tags } }
+import { createMisina } from "misina"
+
+export const api = createMisina({
+  baseURL: process.env.API_URL,
+})
+
+// app/users/[id]/page.tsx
+export default async function Page({ params }: { params: { id: string } }) {
+  const user = await api.get<User>(`/users/${params.id}`, {
+    next: { revalidate: 60, tags: [`user:${params.id}`] },
+  })
+  return <h1>{user.data.name}</h1>
+}
+
+// Mutation handler
+"use server"
+import { revalidateTag } from "next/cache"
+import { onTagInvalidate } from "misina/runtime/next"
+
+const apiWithInvalidate = onTagInvalidate(api, revalidateTag)
+// Now any 2xx response with `{ next: { tags } }` automatically calls
+// revalidateTag(...) on the matching tags after the mutation succeeds.
+```
+
+`misina/runtime/next` augments `MisinaOptions.next` with the official
+Next.js shape so TS catches typos in `revalidate` / `tags`. Pass the
+revalidation cache straight through the fetch options — no wrapping.
+
+### Remix loaders / actions
+
+```ts
+// app/routes/users.$id.tsx
+import type { LoaderFunctionArgs } from "@remix-run/node"
+import { api } from "~/lib/api"
+
+export async function loader({ params, request }: LoaderFunctionArgs) {
+  // request.signal aborts when the navigation is cancelled.
+  const res = await api.get<User>(`/users/${params.id}`, {
+    signal: request.signal,
+  })
+  return res.data
+}
+```
+
+The same pattern fits actions: read `request.formData()` first, then
+hand `request.signal` to misina so the mutation cancels cleanly when
+the user navigates away.
+
+### SvelteKit
+
+```ts
+// src/lib/api.ts
+import { createMisina } from "misina"
+
+export function apiFor(event: { fetch: typeof fetch }) {
+  // SvelteKit's `event.fetch` forwards cookies + redirects + the
+  // request URL automatically — pass it to misina via a custom driver
+  // so server-side calls see the same auth state the browser sent.
+  return createMisina({
+    driver: { name: "sveltekit", request: (req) => event.fetch(req) },
+  })
+}
+
+// src/routes/+page.server.ts
+export async function load(event) {
+  const api = apiFor(event)
+  const user = await api.get<User>("/api/me")
+  return { user: user.data }
+}
+```
+
+Same trick works for Cloudflare Workers (`event.fetch` from the request
+binding) and Deno Fresh (`ctx.fetch`).
+
+### MSW vs createTestMisina
+
+Two different jobs — pick by where you want the mock to sit.
+
+| Need                                               | Use                                                   |
+| -------------------------------------------------- | ----------------------------------------------------- |
+| Mock the network in browser tests / Storybook      | **MSW** service worker                                |
+| Unit-test misina hooks / cache / retry behavior    | **createTestMisina**                                  |
+| Hit a real upstream once, replay forever in CI     | **misina/test** `record()` + `replayFromJSON()`       |
+| Import a captured Chrome / Playwright HAR file     | **misina/test** `harToCassette()`                     |
+| Inject latency / chaos status into specific routes | **misina/test** `randomStatus` / `randomNetworkError` |
+
+MSW intercepts at the runtime fetch layer, so it's transparent — your
+production misina instance keeps running unchanged. `createTestMisina`
+swaps the _driver_, so it tests the misina pipeline (hooks, retry,
+cache) in isolation without spinning up a service worker.
+
+### Logging via `onComplete`
+
+`onComplete` fires once per logical call after retries / redirects, so
+it's the right place for structured-log emission. Three flavors:
+
+```ts
+// pino
+import pino from "pino"
+const log = pino()
+const api = createMisina({
+  hooks: {
+    onComplete: ({ request, response, error, durationMs }) => {
+      log.info(
+        {
+          method: request.method,
+          url: request.url,
+          status: response?.status,
+          ms: durationMs,
+          err: error?.message,
+        },
+        "http",
+      )
+    },
+  },
+})
+
+// winston (mostly identical — winston.info(message, meta))
+import winston from "winston"
+const wlog = winston.createLogger({
+  /* ... */
+})
+const api2 = createMisina({
+  hooks: {
+    onComplete: (i) =>
+      wlog.info("http", {
+        method: i.request.method,
+        url: i.request.url,
+        status: i.response?.status,
+        ms: i.durationMs,
+      }),
+  },
+})
+
+// consola — colored TTY output
+import { consola } from "consola"
+const api3 = createMisina({
+  hooks: {
+    onComplete: ({ request, response, durationMs, error }) => {
+      const level = error
+        ? "error"
+        : response?.status && response.status >= 400
+          ? "warn"
+          : "success"
+      consola[level](
+        `${request.method} ${request.url} → ${response?.status ?? "ERR"} ${Math.round(durationMs)}ms`,
+      )
+    },
+  },
+})
+```
+
+`durationMs` already accounts for retries; `error` is populated only
+on the failure branch. Pair with `withTracing` / `withOtel` when
+distributed-tracing context belongs in the same log line.
 
 ## Benchmarks
 
