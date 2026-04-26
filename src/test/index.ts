@@ -34,11 +34,26 @@ export interface CreateTestMisinaOptions extends MisinaOptions {
   strict?: boolean
 }
 
+export interface RouteCoverage {
+  /** Routes that received at least one request. */
+  matched: string[]
+  /** Routes that were declared but never hit. */
+  unused: string[]
+  /** Requests that hit no declared route (only when strict: false). */
+  unmatched: MockCall[]
+}
+
 export interface TestMisina {
   client: Misina
   calls: readonly MockCall[]
   reset: () => void
   lastCall: () => MockCall | undefined
+  /**
+   * Snapshot which routes have / haven't been exercised, plus any
+   * requests that fell through to no route (only meaningful with
+   * `strict: false`).
+   */
+  coverage: () => RouteCoverage
 }
 
 /**
@@ -51,15 +66,18 @@ export function createTestMisina(opts: CreateTestMisinaOptions = {}): TestMisina
   const matchers = compileRoutes(routes)
 
   const calls: MockCall[] = []
+  const matchedPatterns = new Set<string>()
+  const unmatched: MockCall[] = []
 
   const driver = mockDriverFactory({
     handler: async (request) => {
-      calls.push({
+      const recorded: MockCall = {
         url: request.url,
         method: request.method,
         headers: Object.fromEntries(request.headers),
         body: request.body ? await request.clone().text() : undefined,
-      })
+      }
+      calls.push(recorded)
 
       const url = new URL(request.url)
       const method = request.method.toUpperCase() as HttpMethod
@@ -67,10 +85,12 @@ export function createTestMisina(opts: CreateTestMisinaOptions = {}): TestMisina
       for (const matcher of matchers) {
         const params = matcher.match(method, url.pathname)
         if (!params) continue
+        matchedPatterns.add(matcher.pattern)
         const out = await matcher.handler({ url, method, request, params })
         return toResponse(out)
       }
 
+      unmatched.push(recorded)
       if (strict) {
         throw new Error(`createTestMisina: no route matched ${method} ${url.pathname}`)
       }
@@ -85,12 +105,24 @@ export function createTestMisina(opts: CreateTestMisinaOptions = {}): TestMisina
     calls,
     reset: (): void => {
       calls.length = 0
+      matchedPatterns.clear()
+      unmatched.length = 0
     },
     lastCall: (): MockCall | undefined => calls[calls.length - 1],
+    coverage: (): RouteCoverage => {
+      const matched: string[] = []
+      const unused: string[] = []
+      for (const m of matchers) {
+        if (matchedPatterns.has(m.pattern)) matched.push(m.pattern)
+        else unused.push(m.pattern)
+      }
+      return { matched, unused, unmatched: unmatched.slice() }
+    },
   }
 }
 
 interface CompiledRoute {
+  pattern: string
   match: (method: HttpMethod, path: string) => Record<string, string> | null
   handler: TestRouteHandler
 }
@@ -102,6 +134,7 @@ function compileRoutes(routes: TestRoutes | undefined): CompiledRoute[] {
     const [methodPart, pathPart] = splitPattern(pattern)
     const { regex, paramNames } = pathToRegex(pathPart)
     return {
+      pattern,
       match(method, path) {
         if (methodPart !== "*" && method !== methodPart) return null
         const m = regex.exec(path)
@@ -293,4 +326,182 @@ function headersToObject(headers: Headers): Record<string, string> {
   const out: Record<string, string> = {}
   for (const [k, v] of headers.entries()) out[k.toLowerCase()] = v
   return out
+}
+
+/* ----------------------------------------------------------------------- */
+/*                                 chaos                                    */
+/* ----------------------------------------------------------------------- */
+
+/**
+ * Pick a random status from a pool every time the route is hit. Useful
+ * for resilience tests that want to hammer retry / breaker logic with a
+ * mix of 200s and 5xx without scripting each call.
+ */
+export function randomStatus(statuses: readonly number[], body?: unknown): TestRouteHandler {
+  if (statuses.length === 0) {
+    throw new Error("randomStatus: pool must contain at least one status")
+  }
+  return () => {
+    const status = statuses[Math.floor(Math.random() * statuses.length)] ?? statuses[0]!
+    return { status, body }
+  }
+}
+
+/**
+ * Throw a network-style error every time. Use as a route handler when
+ * testing how callers react to "the connection just died" — this is
+ * what misina's `NetworkError` wraps.
+ */
+export function randomNetworkError(message = "fetch failed"): TestRouteHandler {
+  return () => {
+    throw new TypeError(message)
+  }
+}
+
+/* ----------------------------------------------------------------------- */
+/*                                 HAR                                      */
+/* ----------------------------------------------------------------------- */
+
+/**
+ * Minimal HAR 1.2 shape we care about. Chrome DevTools, Firefox, Safari,
+ * Playwright, and Charles all emit this format.
+ */
+interface HarFile {
+  log: {
+    entries: Array<{
+      request: {
+        method: string
+        url: string
+        headers: Array<{ name: string; value: string }>
+        postData?: { text?: string }
+      }
+      response: {
+        status: number
+        statusText?: string
+        headers: Array<{ name: string; value: string }>
+        content?: { text?: string; encoding?: string }
+      }
+    }>
+  }
+}
+
+/**
+ * Convert an HTTP Archive (HAR) file into a misina cassette. The HAR
+ * `entries[].request` and `entries[].response` arrays map directly onto
+ * the `CassetteEntry` shape, so the result plugs into
+ * `replayFromJSON(...)` without an intermediate step.
+ *
+ * Base64-encoded response bodies (HAR uses `encoding: "base64"` for
+ * binary payloads) are decoded eagerly so callers don't have to know
+ * about the wrapper.
+ */
+export function harToCassette(har: HarFile): Cassette {
+  return har.log.entries.map((entry) => {
+    const requestHeaders: Record<string, string> = {}
+    for (const h of entry.request.headers) requestHeaders[h.name.toLowerCase()] = h.value
+    const responseHeaders: Record<string, string> = {}
+    for (const h of entry.response.headers) responseHeaders[h.name.toLowerCase()] = h.value
+    let body = entry.response.content?.text
+    if (body && entry.response.content?.encoding === "base64") {
+      try {
+        body = atob(body)
+      } catch {
+        // Leave the base64 in place; consumer can decode if needed.
+      }
+    }
+    return {
+      request: {
+        method: entry.request.method,
+        url: entry.request.url,
+        headers: requestHeaders,
+        body: entry.request.postData?.text,
+      },
+      response: {
+        status: entry.response.status,
+        statusText: entry.response.statusText || undefined,
+        headers: responseHeaders,
+        body,
+      },
+    }
+  })
+}
+
+/* ----------------------------------------------------------------------- */
+/*                          vitest snapshot serializer                       */
+/* ----------------------------------------------------------------------- */
+
+/**
+ * Default volatile headers redacted by `misinaCallSerializer`. These
+ * change every run and would otherwise make snapshots flaky.
+ */
+export const DEFAULT_VOLATILE_HEADERS: readonly string[] = [
+  "authorization",
+  "cookie",
+  "date",
+  "idempotency-key",
+  "set-cookie",
+  "traceparent",
+  "tracestate",
+  "user-agent",
+  "x-amz-date",
+  "x-correlation-id",
+  "x-request-id",
+]
+
+export interface SerializerOptions {
+  /** Headers to replace with `[redacted]`. Default: DEFAULT_VOLATILE_HEADERS. */
+  redactHeaders?: readonly string[]
+}
+
+interface SerializedSnapshot {
+  __misina_call: true
+  method: string
+  url: string
+  headers: Record<string, string>
+  body: string | undefined
+}
+
+/**
+ * Vitest snapshot serializer for `MockCall`. Redacts volatile headers
+ * (authorization, idempotency-key, traceparent, etc.) so snapshots
+ * compare cleanly across runs. Use it like:
+ *
+ * ```ts
+ * import { misinaCallSerializer } from "misina/test"
+ * expect.addSnapshotSerializer(misinaCallSerializer())
+ * ```
+ *
+ * Returns the `{ test, serialize }` shape Vitest's serializer API
+ * expects.
+ */
+export function misinaCallSerializer(options: SerializerOptions = {}): {
+  test: (value: unknown) => boolean
+  serialize: (value: unknown) => string
+} {
+  const redact = new Set(
+    (options.redactHeaders ?? DEFAULT_VOLATILE_HEADERS).map((h) => h.toLowerCase()),
+  )
+  return {
+    test(value: unknown): boolean {
+      if (typeof value !== "object" || value === null) return false
+      const v = value as Partial<MockCall>
+      return typeof v.url === "string" && typeof v.method === "string" && "headers" in v
+    },
+    serialize(value: unknown): string {
+      const call = value as MockCall
+      const headers: Record<string, string> = {}
+      for (const [k, v] of Object.entries(call.headers)) {
+        const lower = k.toLowerCase()
+        headers[lower] = redact.has(lower) ? "[redacted]" : v
+      }
+      const snapshot: SerializedSnapshot = {
+        __misina_call: true,
+        method: call.method,
+        url: call.url,
+        headers,
+        body: call.body,
+      }
+      return JSON.stringify(snapshot, null, 2)
+    },
+  }
 }
