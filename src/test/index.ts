@@ -169,3 +169,128 @@ function hasContentType(headers: Record<string, string>): boolean {
 }
 
 export type { MockCall } from "../driver/mock.ts"
+
+/* ----------------------------------------------------------------------- */
+/*                          record / replay cassettes                       */
+/* ----------------------------------------------------------------------- */
+
+/** A serialized request/response pair, JSON-stable across runtimes. */
+export interface CassetteEntry {
+  request: {
+    method: string
+    url: string
+    headers: Record<string, string>
+    /** UTF-8 body when present; binary bodies are base64-prefixed. */
+    body?: string
+  }
+  response: {
+    status: number
+    statusText?: string
+    headers: Record<string, string>
+    body?: string
+  }
+}
+
+export type Cassette = CassetteEntry[]
+
+export interface RecordedCall {
+  request: Request
+  response: Response
+}
+
+/** Match strategy when looking up a recorded entry on replay. */
+export type CassetteMatcher = (request: Request, entry: CassetteEntry, index: number) => boolean
+
+const defaultMatcher: CassetteMatcher = (request, entry) =>
+  request.method === entry.request.method && request.url === entry.request.url
+
+/**
+ * Wrap a Misina with a recorder that captures every request/response
+ * pair flowing through it. Returns the wrapped client plus a `calls`
+ * array suitable for `recordToJSON`.
+ *
+ * Records run on the `afterResponse` hook, so any response that comes
+ * back through the misina pipeline is captured — including 4xx/5xx and
+ * driver-level mock responses.
+ */
+export function record(misina: Misina): {
+  client: Misina
+  calls: RecordedCall[]
+} {
+  const calls: RecordedCall[] = []
+  const client = misina.extend({
+    hooks: {
+      afterResponse: (ctx) => {
+        if (ctx.response) {
+          calls.push({ request: ctx.request, response: ctx.response.clone() })
+        }
+      },
+    },
+  })
+  return { client, calls }
+}
+
+/**
+ * Serialize recorded calls to a JSON-stable cassette. Bodies are read
+ * fully via `clone().text()`, so the originals stay readable. Headers
+ * are normalized to lowercase keys for deterministic equality.
+ */
+export async function recordToJSON(calls: RecordedCall[]): Promise<Cassette> {
+  const out: Cassette = []
+  for (const c of calls) {
+    out.push({
+      request: {
+        method: c.request.method,
+        url: c.request.url,
+        headers: headersToObject(c.request.headers),
+        body: c.request.body ? await c.request.clone().text() : undefined,
+      },
+      response: {
+        status: c.response.status,
+        statusText: c.response.statusText || undefined,
+        headers: headersToObject(c.response.headers),
+        body: await c.response.clone().text(),
+      },
+    })
+  }
+  return out
+}
+
+/**
+ * Build a replay handler from a cassette. The result plugs into
+ * `createTestMisina({ replay: cassette, replayMatch })` (below) — when
+ * a request is issued, the first cassette entry whose matcher returns
+ * true is consumed; subsequent calls advance through unconsumed
+ * entries.
+ *
+ * Default matcher pairs entries by method + url. Pass a custom
+ * `match` callback to also branch on body, headers, or query order.
+ */
+export function replayFromJSON(
+  cassette: Cassette,
+  options: { match?: CassetteMatcher; consume?: boolean } = {},
+): TestRouteHandler {
+  const match = options.match ?? defaultMatcher
+  const consume = options.consume ?? true
+  const remaining = cassette.map((e, i) => ({ entry: e, index: i, used: false }))
+  return ({ request }) => {
+    const found = remaining.find(
+      (slot) => (!consume || !slot.used) && match(request, slot.entry, slot.index),
+    )
+    if (!found) {
+      throw new Error(`replayFromJSON: no cassette entry matched ${request.method} ${request.url}`)
+    }
+    found.used = true
+    return new Response(found.entry.response.body ?? null, {
+      status: found.entry.response.status,
+      statusText: found.entry.response.statusText,
+      headers: found.entry.response.headers,
+    })
+  }
+}
+
+function headersToObject(headers: Headers): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [k, v] of headers.entries()) out[k.toLowerCase()] = v
+  return out
+}
