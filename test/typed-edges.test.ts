@@ -92,4 +92,47 @@ describe("createMisinaTyped — path param substitution edges", () => {
     await api.get("/search/:q", { params: { q: "hello world & more" } })
     expect(seen).toMatch(/hello%20world%20%26%20more/)
   })
+
+  it("rejects '..' as a path param value (traversal)", () => {
+    type Api2 = { "GET /users/:id": { params: { id: string }; response: unknown } }
+    const driver = {
+      name: "watch",
+      request: async () => jsonResponse({}),
+    }
+    const api = createMisinaTyped<Api2>({ driver, retry: 0, baseURL: "https://api.test" })
+    expect(() => api.get("/users/:id", { params: { id: ".." } })).toThrow(/traversal/)
+  })
+
+  it("rejects '/' separator in path param", () => {
+    type Api2 = { "GET /users/:id": { params: { id: string }; response: unknown } }
+    const driver = {
+      name: "watch",
+      request: async () => jsonResponse({}),
+    }
+    const api = createMisinaTyped<Api2>({ driver, retry: 0, baseURL: "https://api.test" })
+    expect(() => api.get("/users/:id", { params: { id: "../admin" } })).toThrow(/separator/)
+    expect(() => api.get("/users/:id", { params: { id: "a/b" } })).toThrow(/separator/)
+  })
+
+  it("rejects '\\\\' (backslash) and NUL in path param", () => {
+    type Api2 = { "GET /users/:id": { params: { id: string }; response: unknown } }
+    const driver = {
+      name: "watch",
+      request: async () => jsonResponse({}),
+    }
+    const api = createMisinaTyped<Api2>({ driver, retry: 0, baseURL: "https://api.test" })
+    expect(() => api.get("/users/:id", { params: { id: "a\\b" } })).toThrow(/separator/)
+    expect(() => api.get("/users/:id", { params: { id: "a\0b" } })).toThrow(/separator/)
+  })
+
+  it("rejects empty string and '.' segments", () => {
+    type Api2 = { "GET /users/:id": { params: { id: string }; response: unknown } }
+    const driver = {
+      name: "watch",
+      request: async () => jsonResponse({}),
+    }
+    const api = createMisinaTyped<Api2>({ driver, retry: 0, baseURL: "https://api.test" })
+    expect(() => api.get("/users/:id", { params: { id: "" } })).toThrow(/traversal/)
+    expect(() => api.get("/users/:id", { params: { id: "." } })).toThrow(/traversal/)
+  })
 })

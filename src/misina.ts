@@ -470,6 +470,7 @@ function resolveOptions(
     next: init.next ?? defaults.next,
     redirect: init.redirect ?? defaults.redirect ?? "manual",
     redirectSafeHeaders: init.redirectSafeHeaders ?? defaults.redirectSafeHeaders,
+    redirectStripHeaders: init.redirectStripHeaders ?? defaults.redirectStripHeaders,
     redirectMaxCount: init.redirectMaxCount ?? defaults.redirectMaxCount ?? 5,
     redirectAllowDowngrade: init.redirectAllowDowngrade ?? defaults.redirectAllowDowngrade ?? false,
     throwHttpErrors: init.throwHttpErrors ?? defaults.throwHttpErrors ?? true,
