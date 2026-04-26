@@ -6,6 +6,11 @@ import { http2Driver } from "../src/driver/http2.ts"
 let server: Http2Server
 let baseUrl: string
 let requestsSeen = 0
+const drivers: Array<{ dispose: () => Promise<void> }> = []
+function track<T extends { dispose: () => Promise<void> }>(driver: T): T {
+  drivers.push(driver)
+  return driver
+}
 
 beforeAll(async () => {
   requestsSeen = 0
@@ -41,13 +46,20 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  // Tear down every client session first so the server's `close()`
+  // isn't blocked waiting for half-open sockets to drain.
+  await Promise.all(drivers.map((d) => d.dispose().catch(() => undefined)))
+  drivers.length = 0
+  // Force-close any lingering sockets (Node ≥ 18.2). Falls back to a
+  // plain `close()` on older runtimes that don't have it.
+  ;(server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.()
   await new Promise<void>((resolve) => server.close(() => resolve()))
 })
 
 describe("http2Driver", () => {
   it("returns a Response from a single GET", async () => {
     const m = createMisina({
-      driver: http2Driver(),
+      driver: track(http2Driver()),
       retry: 0,
     })
     const r = await m.get<{ path: string; n: number }>(`${baseUrl}/users/1`)
@@ -58,7 +70,7 @@ describe("http2Driver", () => {
 
   it("multiplexes concurrent streams over a single session", async () => {
     const m = createMisina({
-      driver: http2Driver(),
+      driver: track(http2Driver()),
       retry: 0,
     })
     const before = requestsSeen
@@ -73,7 +85,7 @@ describe("http2Driver", () => {
 
   it("forwards POST body bytes through the stream", async () => {
     const m = createMisina({
-      driver: http2Driver(),
+      driver: track(http2Driver()),
       retry: 0,
     })
     const r = await m.post<{ method: string; body: string }>(`${baseUrl}/echo`, { hi: "there" })
@@ -83,7 +95,7 @@ describe("http2Driver", () => {
 
   it("aborting the signal destroys the stream", async () => {
     const m = createMisina({
-      driver: http2Driver(),
+      driver: track(http2Driver()),
       retry: 0,
     })
     const ac = new AbortController()

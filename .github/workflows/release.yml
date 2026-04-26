@@ -48,6 +48,14 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: 🦕 Publish to JSR (OIDC)
+        # Authenticated via the GITHUB_OIDC token (id-token: write
+        # permission above). No JSR secret needed — JSR trusts the
+        # repo's OIDC issuer based on the `name` field in jsr.json.
+        # `--allow-slow-types` is required because the runtime/* modules
+        # use `declare module` ambient augmentation that JSR flags.
+        run: npx jsr publish --allow-slow-types
+
       - name: 📝 Generate changelog
         run: pnpm dlx changelogithub
         env:

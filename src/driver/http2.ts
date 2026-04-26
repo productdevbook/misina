@@ -56,12 +56,22 @@ interface ClientHttp2Stream {
   resume?: () => void
 }
 
+/**
+ * `MisinaDriver` plus a `dispose()` method that closes every cached
+ * `ClientHttp2Session` and clears its idle timer. Useful in tests and
+ * graceful shutdown paths where the process can't wait for the
+ * server-side close to ripple back.
+ */
+export interface Http2MisinaDriver extends MisinaDriver {
+  dispose: () => Promise<void>
+}
+
 // Separate factory wrapper so callers can call `http2Driver()` (no
 // argument) or `http2Driver({ sessionIdleTimeoutMs: 60_000 })`.
 // `MisinaDriverFactory<TOptions | void>` distributes into a union
 // that TS can't satisfy with a single arrow, so we wrap a normal
 // optional-arg function and assert the return shape.
-function http2Driver(rawOptions: Http2DriverOptions = {}): MisinaDriver {
+function http2Driver(rawOptions: Http2DriverOptions = {}): Http2MisinaDriver {
   const options = rawOptions
   const idleMs = options.sessionIdleTimeoutMs ?? 30_000
 
@@ -116,8 +126,35 @@ function http2Driver(rawOptions: Http2DriverOptions = {}): MisinaDriver {
     return session
   }
 
+  async function dispose(): Promise<void> {
+    for (const t of idleTimers.values()) clearTimeout(t)
+    idleTimers.clear()
+    const closing: Promise<void>[] = []
+    for (const session of sessions.values()) {
+      if (session.destroyed) continue
+      closing.push(
+        new Promise<void>((resolve) => {
+          let done = false
+          const finish = (): void => {
+            if (done) return
+            done = true
+            resolve()
+          }
+          session.on("close", finish)
+          session.destroy()
+          // Belt-and-braces: if `close` doesn't fire (some Node
+          // versions on already-destroyed sessions), resolve next tick.
+          queueMicrotask(finish)
+        }),
+      )
+    }
+    sessions.clear()
+    await Promise.all(closing)
+  }
+
   return {
     name: "http2",
+    dispose,
     request: async (request: Request): Promise<Response> => {
       const mod = await ensureModule()
       const url = new URL(request.url)
@@ -221,7 +258,7 @@ function http2Driver(rawOptions: Http2DriverOptions = {}): MisinaDriver {
         }
       })
     },
-  } satisfies MisinaDriver
+  } satisfies Http2MisinaDriver
 }
 
 export { http2Driver }
