@@ -387,6 +387,67 @@ export interface ResponseTimings {
 
 export type CatchMatcher = number | number[] | string | ((error: unknown) => boolean)
 
+/**
+ * Discriminated result type returned by `misina.safe.*` methods. Uses Go-style
+ * branching so both success and failure paths get full type safety.
+ */
+export type MisinaResult<T, E = unknown> =
+  | { ok: true; data: T; response: MisinaResponse<T>; error?: undefined }
+  | {
+      ok: false
+      data?: undefined
+      response: MisinaResponse<unknown> | undefined
+      error: HTTPError<E> | Error
+    }
+
+/**
+ * Same surface as `Misina` but every method returns a `MisinaResult` instead
+ * of throwing. Perfect for hot UI code where TypeScript needs to discriminate
+ * branches without `try/catch` widening to `unknown`.
+ */
+export interface SafeMisina {
+  request: <T = unknown, E = unknown>(
+    input: string,
+    init?: MisinaRequestInit,
+  ) => Promise<MisinaResult<T, E>>
+  get: <T = unknown, E = unknown>(
+    url: string,
+    init?: MisinaRequestInit,
+  ) => Promise<MisinaResult<T, E>>
+  post: <T = unknown, E = unknown>(
+    url: string,
+    body?: unknown,
+    init?: MisinaRequestInit,
+  ) => Promise<MisinaResult<T, E>>
+  put: <T = unknown, E = unknown>(
+    url: string,
+    body?: unknown,
+    init?: MisinaRequestInit,
+  ) => Promise<MisinaResult<T, E>>
+  patch: <T = unknown, E = unknown>(
+    url: string,
+    body?: unknown,
+    init?: MisinaRequestInit,
+  ) => Promise<MisinaResult<T, E>>
+  delete: <T = unknown, E = unknown>(
+    url: string,
+    init?: MisinaRequestInit,
+  ) => Promise<MisinaResult<T, E>>
+  head: <T = unknown, E = unknown>(
+    url: string,
+    init?: MisinaRequestInit,
+  ) => Promise<MisinaResult<T, E>>
+  options: <T = unknown, E = unknown>(
+    url: string,
+    init?: MisinaRequestInit,
+  ) => Promise<MisinaResult<T, E>>
+  query: <T = unknown, E = unknown>(
+    url: string,
+    body?: unknown,
+    init?: MisinaRequestInit,
+  ) => Promise<MisinaResult<T, E>>
+}
+
 export interface MisinaResponsePromise<T, E = unknown> extends Promise<MisinaResponse<T>> {
   /**
    * Recover from specific errors. Matcher can be a status code, an array of
@@ -452,6 +513,12 @@ export interface Misina {
     body?: unknown,
     init?: MisinaRequestInit,
   ) => MisinaResponsePromise<T, E>
+  /**
+   * No-throw companion. `misina.safe.get<T, E>(url)` returns
+   * `Promise<MisinaResult<T, E>>` — a discriminated `{ ok, data, error,
+   * response }` object so both branches are type-safe at the call site.
+   */
+  safe: SafeMisina
 }
 
 /**

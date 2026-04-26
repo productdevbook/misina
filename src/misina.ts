@@ -25,6 +25,8 @@ import type {
   MisinaResolvedOptions,
   MisinaResponse,
   MisinaResponsePromise,
+  MisinaResult,
+  SafeMisina,
 } from "./types.ts"
 
 // Methods that never accept a request body. DELETE is intentionally absent —
@@ -309,6 +311,58 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
     ): MisinaResponsePromise<T> => callable<T>(url, { ...init, method, body })
   }
 
+  async function safeCall<T, E>(
+    method: HttpMethod,
+    input: string,
+    body: unknown,
+    init?: MisinaRequestInit,
+  ): Promise<MisinaResult<T, E>> {
+    try {
+      const response = await callable<T>(input, { ...init, method, body })
+      return { ok: true, data: response.data, response }
+    } catch (e) {
+      const error = e as Error
+      const response = (error as { response?: Response }).response as Response | undefined
+      // For HTTPError we already have the parsed body — surface a
+      // synthesized MisinaResponse<unknown> so callers can read headers.
+      let outResponse: MisinaResponse<unknown> | undefined
+      if (response instanceof Response) {
+        outResponse = {
+          data: (error as { data?: unknown }).data,
+          status: response.status,
+          statusText: response.statusText,
+          headers: Object.fromEntries(response.headers),
+          url: response.url,
+          type: response.type,
+          timings: { start: 0, responseStart: 0, end: 0, total: 0 },
+          raw: response,
+        }
+      }
+      return { ok: false, response: outResponse, error: error as HTTPError<E> | Error }
+    }
+  }
+
+  const safe: SafeMisina = {
+    request: <T = unknown, E = unknown>(input: string, init?: MisinaRequestInit) =>
+      safeCall<T, E>((init?.method ?? "GET") as HttpMethod, input, init?.body, init),
+    get: <T = unknown, E = unknown>(url: string, init?: MisinaRequestInit) =>
+      safeCall<T, E>("GET", url, undefined, init),
+    post: <T = unknown, E = unknown>(url: string, body?: unknown, init?: MisinaRequestInit) =>
+      safeCall<T, E>("POST", url, body, init),
+    put: <T = unknown, E = unknown>(url: string, body?: unknown, init?: MisinaRequestInit) =>
+      safeCall<T, E>("PUT", url, body, init),
+    patch: <T = unknown, E = unknown>(url: string, body?: unknown, init?: MisinaRequestInit) =>
+      safeCall<T, E>("PATCH", url, body, init),
+    delete: <T = unknown, E = unknown>(url: string, init?: MisinaRequestInit) =>
+      safeCall<T, E>("DELETE", url, undefined, init),
+    head: <T = unknown, E = unknown>(url: string, init?: MisinaRequestInit) =>
+      safeCall<T, E>("HEAD", url, undefined, init),
+    options: <T = unknown, E = unknown>(url: string, init?: MisinaRequestInit) =>
+      safeCall<T, E>("OPTIONS", url, undefined, init),
+    query: <T = unknown, E = unknown>(url: string, body?: unknown, init?: MisinaRequestInit) =>
+      safeCall<T, E>("QUERY", url, body, init),
+  }
+
   const misina: Misina = {
     extend: (input) => {
       const child = typeof input === "function" ? input(defaults) : input
@@ -324,6 +378,7 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
     head: bind("HEAD"),
     options: bind("OPTIONS"),
     query: bindWithBody("QUERY"),
+    safe,
   }
 
   return misina
