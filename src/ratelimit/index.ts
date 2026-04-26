@@ -1,17 +1,14 @@
 /**
- * Rate-limit header parser. Recognizes the de-facto OpenAI / Anthropic
- * style (`x-ratelimit-*-requests` / `x-ratelimit-*-tokens`) and the IETF
- * draft (`RateLimit-Limit` / `RateLimit-Remaining` / `RateLimit-Reset`).
- * Returns null when no recognized headers are present.
+ * Rate-limit header parser + optional client-side token bucket.
  *
- * Reset values are normalized to a `Date`. The header may carry:
- *   - ISO 8601 string  (`'2026-04-26T15:00:00Z'`)
- *   - Unix seconds     (`'1745680800'` — large absolute, or small relative)
- *   - duration suffix  (`'10s'`, `'500ms'`, `'1m30s'`)
- *
- * No core changes; pair with a token-bucket limiter (#92) or feed into
- * `onComplete` for telemetry.
+ * - `parseRateLimitHeaders(headers)` reads OpenAI-style and IETF-draft
+ *   `x-ratelimit-*` headers; returns null when none recognized.
+ * - `withRateLimit(misina, opts)` adds an in-process limiter that gates
+ *   each request before dispatch, learns the real budget from response
+ *   headers, and backs off on 429.
  */
+
+import type { Misina } from "../types.ts"
 
 export interface RateLimitBucket {
   limit: number | undefined
@@ -115,4 +112,150 @@ function parseDuration(value: string): number | undefined {
     }
   }
   return total
+}
+
+export interface RateLimitOptions {
+  /** Initial requests-per-minute budget. Default: Infinity (unlimited). */
+  rpm?: number
+  /** Initial tokens-per-minute budget. Default: Infinity (unlimited). */
+  tpm?: number
+  /**
+   * Estimate token cost for a request before dispatch. Used to acquire
+   * tokens from the TPM bucket. Return 0 to skip the TPM gate for a
+   * request. Default: () => 0 (no TPM accounting).
+   */
+  estimateTokens?: (request: Request) => number
+  /**
+   * Override the source of "now" — useful in tests with fake timers.
+   * Default: `() => Date.now()`.
+   */
+  now?: () => number
+}
+
+/**
+ * Token-bucket rate limiter wired into a `Misina` instance via hooks.
+ * Two buckets — requests-per-minute and tokens-per-minute — refill
+ * linearly. `beforeRequest` waits until both buckets cover the cost.
+ * `onComplete` reads `x-ratelimit-remaining-*` and adjusts the bucket
+ * to the real budget the server reports. 429 responses drain both
+ * buckets aggressively so subsequent calls back off.
+ */
+export function withRateLimit(misina: Misina, options: RateLimitOptions = {}): Misina {
+  const now = options.now ?? ((): number => Date.now())
+  const estimate = options.estimateTokens ?? ((): number => 0)
+
+  const requests = createBucket(options.rpm ?? Number.POSITIVE_INFINITY, now)
+  const tokens = createBucket(options.tpm ?? Number.POSITIVE_INFINITY, now)
+
+  return misina.extend({
+    hooks: {
+      beforeRequest: async (ctx) => {
+        const cost = Math.max(0, estimate(ctx.request))
+        await requests.acquire(1, ctx.options.signal)
+        if (cost > 0) await tokens.acquire(cost, ctx.options.signal)
+      },
+      onComplete: ({ response }) => {
+        if (!response) return
+        const info = parseRateLimitHeaders(response.headers)
+        if (info?.requests?.remaining !== undefined) {
+          requests.observeRemaining(info.requests.remaining, info.requests.resetAt)
+        }
+        if (info?.tokens?.remaining !== undefined) {
+          tokens.observeRemaining(info.tokens.remaining, info.tokens.resetAt)
+        }
+        if (response.status === 429) {
+          requests.drainAndBackoff(info?.requests?.resetAt)
+          tokens.drainAndBackoff(info?.tokens?.resetAt)
+        }
+      },
+    },
+  })
+}
+
+interface Bucket {
+  acquire(cost: number, signal: AbortSignal | undefined): Promise<void>
+  observeRemaining(remaining: number, resetAt: Date | undefined): void
+  drainAndBackoff(resetAt: Date | undefined): void
+}
+
+function createBucket(initialPerMinute: number, now: () => number): Bucket {
+  // capacity: max budget per minute. ratePerMs: refill rate.
+  let capacity = initialPerMinute
+  let available = capacity
+  let lastTick = now()
+  // Time at which the bucket should be considered full again; honored
+  // when the server tells us when reset happens (resetAt). When set,
+  // refill is gated by `until` rather than the linear ratePerMs path.
+  let bypassUntil = 0
+
+  function refill(): void {
+    const t = now()
+    if (capacity === Number.POSITIVE_INFINITY) {
+      available = Number.POSITIVE_INFINITY
+      lastTick = t
+      return
+    }
+    const elapsed = t - lastTick
+    if (elapsed > 0) {
+      // capacity tokens per 60_000 ms.
+      available = Math.min(capacity, available + (elapsed * capacity) / 60_000)
+      lastTick = t
+    }
+  }
+
+  return {
+    async acquire(cost: number, signal: AbortSignal | undefined): Promise<void> {
+      if (capacity === Number.POSITIVE_INFINITY) return
+      while (true) {
+        refill()
+        if (bypassUntil > now()) {
+          await sleep(bypassUntil - now(), signal)
+          continue
+        }
+        if (available >= cost) {
+          available -= cost
+          return
+        }
+        // Need (cost - available) more tokens; wait long enough to refill.
+        const deficit = cost - available
+        const waitMs = Math.max(50, Math.ceil((deficit * 60_000) / capacity))
+        await sleep(waitMs, signal)
+      }
+    },
+    observeRemaining(remaining: number, resetAt: Date | undefined): void {
+      if (!Number.isFinite(remaining) || remaining < 0) return
+      // Trust the server's number — it's authoritative.
+      available = Math.min(capacity, remaining)
+      lastTick = now()
+      // If the reset moment is known, bypass refill until then if we're
+      // already at zero (server has told us we're tapped out).
+      if (remaining === 0 && resetAt) {
+        bypassUntil = Math.max(bypassUntil, resetAt.getTime())
+      }
+    },
+    drainAndBackoff(resetAt: Date | undefined): void {
+      available = 0
+      lastTick = now()
+      if (resetAt) bypassUntil = Math.max(bypassUntil, resetAt.getTime())
+      else bypassUntil = Math.max(bypassUntil, now() + 1000)
+    },
+  }
+}
+
+function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  if (ms <= 0) return Promise.resolve()
+  return new Promise((resolve, reject) => {
+    const id = setTimeout(resolve, ms)
+    if (signal) {
+      const onAbort = (): void => {
+        clearTimeout(id)
+        reject(signal.reason)
+      }
+      if (signal.aborted) {
+        onAbort()
+        return
+      }
+      signal.addEventListener("abort", onAbort, { once: true })
+    }
+  })
 }
