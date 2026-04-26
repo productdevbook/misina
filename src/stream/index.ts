@@ -2,14 +2,20 @@
  * Streaming helpers — turn a `Response` body into typed async iterables.
  *
  * - `sseStream(response)`: parse `text/event-stream` events.
+ * - `sseStreamReconnecting(misina, path, opts)`: SSE iterator that
+ *   reopens the underlying request on disconnect with `Last-Event-ID`
+ *   set to the last `id:` seen and a delay derived from the server's
+ *   `retry:` field (or backoff fallback).
  * - `ndjsonStream(response)`: parse `application/x-ndjson` line-delimited JSON.
  * - `linesOf(response)`: raw line iterator (delimited by \n).
  *
- * All three iterators implement `[Symbol.asyncDispose]` so TC39
+ * All four iterators implement `[Symbol.asyncDispose]` so TC39
  * explicit resource management (`await using`) works across runtime
  * baselines. AsyncGenerator's prototype only got native dispose in
  * Node 24; we ensure-disposable any iterable for Node 22 / Bun / Deno.
  */
+
+import type { Misina, MisinaRequestInit } from "../types.ts"
 
 /**
  * Wrap an AsyncIterable so it implements `[Symbol.asyncDispose]` even
@@ -124,6 +130,141 @@ async function* _sseStream(response: Response): AsyncIterable<SseEvent> {
     event.data = dataLines.join("\n")
     yield event
   }
+}
+
+export interface SseReconnectOptions {
+  /** Per-request init forwarded to `misina.get(path, init)`. */
+  init?: MisinaRequestInit
+  /**
+   * Fallback delay between reconnect attempts when the server hasn't
+   * sent a `retry:` field yet. Default: 3000 ms (HTML §9.2.4 default).
+   */
+  reconnectDelayMs?: number
+  /**
+   * Max delay between reconnect attempts. The effective delay is
+   * `min(serverRetry || reconnectDelayMs * 2^failures, max)`.
+   * Default: 60_000 ms.
+   */
+  maxDelayMs?: number
+  /**
+   * Stop reconnecting after this many consecutive failures. Default:
+   * Infinity — reconnect forever until disposed or signal aborts.
+   */
+  maxRetries?: number
+  /**
+   * Decide whether to keep reconnecting. Receives the failure that
+   * closed the previous connection (Error or undefined for graceful
+   * EOF) and the current failure count. Return false to stop.
+   * Default: always reconnect.
+   */
+  shouldReconnect?: (error: unknown, attempt: number) => boolean
+  /** External abort signal — disposes the iterator when fired. */
+  signal?: AbortSignal
+}
+
+/**
+ * SSE iterator that reopens the connection across disconnects, honoring
+ * the server's `retry:` field and `Last-Event-ID` header (HTML §9.2.4).
+ *
+ * Each iteration yields the events from the *current* connection; when
+ * the source closes (graceful EOF or stream error) we sleep for the
+ * effective retry delay then reissue the request with `Last-Event-ID`
+ * set to the most recently seen `id:` value.
+ *
+ * Dispose (`await using` or `signal.abort()`) cancels the in-flight
+ * connection and stops the reconnect loop.
+ *
+ * @example
+ * ```ts
+ * const events = sseStreamReconnecting(api, "/v1/notifications", {
+ *   reconnectDelayMs: 1000,
+ * })
+ * for await (const e of events) console.log(e)
+ * ```
+ */
+export function sseStreamReconnecting(
+  misina: Misina,
+  path: string,
+  options: SseReconnectOptions = {},
+): AsyncIterableIterator<SseEvent> & AsyncDisposable {
+  return ensureDisposable(_sseStreamReconnecting(misina, path, options))
+}
+
+async function* _sseStreamReconnecting(
+  misina: Misina,
+  path: string,
+  options: SseReconnectOptions,
+): AsyncIterable<SseEvent> {
+  const fallbackDelay = options.reconnectDelayMs ?? 3000
+  const maxDelay = options.maxDelayMs ?? 60_000
+  const maxRetries = options.maxRetries ?? Infinity
+  const shouldReconnect = options.shouldReconnect ?? (() => true)
+  const externalSignal = options.signal
+
+  let lastEventId: string | undefined
+  let serverRetryMs: number | undefined
+  let failures = 0
+
+  while (true) {
+    if (externalSignal?.aborted) return
+    const init: MisinaRequestInit = { ...options.init, responseType: "stream" }
+    const headers = new Headers(init.headers as HeadersInit | undefined)
+    headers.set("accept", headers.get("accept") ?? "text/event-stream")
+    if (lastEventId !== undefined) headers.set("last-event-id", lastEventId)
+    init.headers = headers
+    if (externalSignal) {
+      init.signal = init.signal ? composeAbort(init.signal, externalSignal) : externalSignal
+    }
+
+    let lastError: unknown = undefined
+    try {
+      const result = await misina.get(path, init)
+      // Reset failure count on a successful response — backoff applies
+      // to *consecutive* failures, not lifetime count.
+      failures = 0
+      for await (const event of sseStream(result.raw)) {
+        if (event.id !== undefined) lastEventId = event.id
+        if (event.retry !== undefined) serverRetryMs = event.retry
+        yield event
+      }
+    } catch (error) {
+      lastError = error
+    }
+
+    if (externalSignal?.aborted) return
+    failures++
+    if (failures > maxRetries) return
+    if (!shouldReconnect(lastError, failures)) return
+
+    const base = serverRetryMs ?? fallbackDelay * 2 ** Math.min(failures - 1, 6)
+    const delay = Math.min(base, maxDelay)
+    await sleep(delay, externalSignal)
+  }
+}
+
+function composeAbort(a: AbortSignal, b: AbortSignal): AbortSignal {
+  if (a.aborted) return a
+  if (b.aborted) return b
+  const c = new AbortController()
+  const onAbort = (): void => c.abort()
+  a.addEventListener("abort", onAbort, { once: true })
+  b.addEventListener("abort", onAbort, { once: true })
+  return c.signal
+}
+
+async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return
+  await new Promise<void>((resolve) => {
+    const t = setTimeout(resolve, ms)
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(t)
+        resolve()
+      },
+      { once: true },
+    )
+  })
 }
 
 /**
