@@ -58,6 +58,7 @@
   - [misina/beacon](#misinabeacon)
   - [misina/graphql](#misinagraphql)
   - [misina/hedge](#misinahedge)
+- [Benchmarks](#benchmarks)
 - [Idempotency-Key](#idempotency-key)
 - [RFC 9457 problem+json](#rfc-9457-problemjson)
 - [Fetch Priority](#fetch-priority)
@@ -1088,6 +1089,37 @@ for (const t of r.serverTimings) {
 import { parseServerTiming } from "misina"
 const entries = parseServerTiming(headers.get("server-timing"))
 ```
+
+## Benchmarks
+
+Reproducible suite under `bench/` ([mitata](https://github.com/evanwashere/mitata))
+runs misina against ofetch / ky / axios / native `fetch` over a local
+`node:http` fixture. Run with:
+
+```sh
+pnpm bench
+```
+
+Sample numbers from a Node 24 / macOS / Apple Silicon laptop (lower is
+better):
+
+| Suite                            | native fetch |    ofetch |     ky |  axios | **misina** |
+| -------------------------------- | -----------: | --------: | -----: | -----: | ---------: |
+| Steady GET (200 OK + JSON parse) |    **63 µs** |     65 µs |  75 µs | 106 µs |      78 µs |
+| POST JSON body (+ JSON parse)    |        88 µs | **82 µs** | 133 µs |  95 µs |     137 µs |
+
+Other measurements:
+
+| Operation                              |       Time |
+| -------------------------------------- | ---------: |
+| `createMisina()` cold start            | **176 ns** |
+| Hook overhead (5 noop beforeRequest)   |  **+3 µs** |
+| Retry 503 → 200 (1 retry, 1ms backoff) |    1.48 ms |
+
+These are end-to-end (request build → wire → parse) on localhost; real
+networks dominate at the millisecond scale, so library overhead is
+usually noise. The suite exists so we can spot regressions across
+releases, not to declare a winner.
 
 ## Idempotency-Key
 
