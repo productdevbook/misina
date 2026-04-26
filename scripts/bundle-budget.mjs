@@ -18,6 +18,7 @@ const BUDGETS = [
   // Subpaths
   { match: (p) => p.startsWith("driver/"), max: 6_000, label: "driver" },
   { match: (p) => p === "driver/undici.mjs", max: 1_500, label: "driver/undici" },
+  { match: (p) => p === "driver/http2.mjs", max: 4_000, label: "driver/http2" },
   { match: (p) => p.startsWith("errors/"), max: 4_000, label: "errors" },
   { match: (p) => p.startsWith("stream/"), max: 8_000, label: "stream" },
   { match: (p) => p.startsWith("paginate/"), max: 4_000, label: "paginate" },

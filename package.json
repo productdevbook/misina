@@ -78,6 +78,10 @@
       "types": "./dist/driver/undici.d.mts",
       "default": "./dist/driver/undici.mjs"
     },
+    "./driver/http2": {
+      "types": "./dist/driver/http2.d.mts",
+      "default": "./dist/driver/http2.mjs"
+    },
     "./test": {
       "types": "./dist/test/index.d.mts",
       "default": "./dist/test/index.mjs"

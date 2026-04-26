@@ -89,7 +89,7 @@
 - **Streaming** — built-in SSE (WHATWG HTML §9.2 compliant) and NDJSON helpers.
 - **HTTP cache** — RFC 9111 compliant: `Cache-Control: no-store` / `max-age`, ETag / Last-Modified revalidation, `Vary` per-variant keying.
 - **Cookie jar** — RFC 6265 compliant: domain match check, Path matching, Secure flag, Max-Age / Expires.
-- **816 tests** across 114 files, exhaustively covering specs and edge cases.
+- **820 tests** across 115 files, exhaustively covering specs and edge cases.
 - **Subpath helpers**: `auth`, `auth/oauth`, `auth/sigv4`, `auth/signed`, `beacon`, `breaker`, `cache`, `cookie`, `dedupe`, `digest`, `graphql`, `hedge`, `otel`, `paginate`, `poll`, `ratelimit`, `runtime/{bun,cloudflare,deno,next}`, `sentry`, `stream`, `test`, `tracing`, `transfer`.
 - **Idempotency-Key on retry** (RFC draft) — `idempotencyKey: 'auto'` sends a `crypto.randomUUID()` for retried mutations. No competitor ships this.
 - **RFC 9457 problem+json** parsed onto `HTTPError.problem` automatically.
@@ -118,6 +118,7 @@
 - **RFC 9421 HTTP Message Signatures** (`misina/auth/signed`) — `withMessageSignature()` covers Ed25519 / ECDSA P-256 / RSA-PSS / HMAC-SHA256. Cloudflare Verified Bots / OpenAI Operator pattern.
 - **OpenTelemetry spans** (`misina/otel`) — `withOtel()` emits HTTP client spans with semconv attributes; tracer is duck-typed so misina never imports `@opentelemetry/*`.
 - **Undici driver** (`misina/driver/undici`) — Node-only optional driver that takes any `undici.Agent` / `Pool` / `Client` so callers can tune connection pool, keep-alive, pipelining, and HTTP/2 multiplexing.
+- **node:http2 driver** (`misina/driver/http2`) — zero-dep alternative for environments that can't ship undici. Multiplexes streams over one session per origin; auto-reconnects on `GOAWAY`.
 - **VCR-lite test helpers** — `record()` + `recordToJSON()` + `replayFromJSON()` round-trip cassettes; `harToCassette()` imports HAR; `coverage()` flags unused routes; `randomStatus` / `randomNetworkError` for chaos; `misinaCallSerializer` redacts volatile headers in Vitest snapshots.
 - **Typed runtime knobs** — `misina/runtime/{bun,deno,cloudflare,next}` augment `MisinaOptions` with runtime-specific fields (`tls`, `client`, `cf`, `next`).
 
@@ -500,6 +501,29 @@ yourself (`npm i undici`) only if you use this driver. Misina lazy-
 imports `undici` on first call, so the rest of the package keeps its
 zero-dep footprint. Switch back to the default `fetch` driver any
 time without changing the rest of your code.
+
+#### misina/driver/http2 (Node-only, zero peer dep)
+
+For environments that can't ship undici (locked-down profiles, custom
+dispatcher logic), the `node:http2` driver multiplexes streams over a
+single `ClientHttp2Session` per origin and auto-reconnects on
+`GOAWAY` frames or session errors:
+
+```ts
+import { http2Driver } from "misina/driver/http2"
+
+const api = createMisina({
+  driver: http2Driver({
+    sessionIdleTimeoutMs: 30_000, // close idle sessions after 30s
+  }),
+  baseURL: "https://h2.example.com",
+})
+```
+
+Uses Node's built-in `node:http2` (dynamic-imported on first call), so
+nothing extra to install. For most workloads `misina/driver/undici` is
+a better default — this driver covers the slim slice where undici
+isn't an option or callers need direct session access.
 
 ## Subpaths
 
