@@ -333,6 +333,7 @@ function resolveOptions(
     allowAbsoluteUrls,
     allowedProtocols,
     trailingSlash,
+    meta: { ...defaults.meta, ...init.meta },
     method,
     headers,
     body,

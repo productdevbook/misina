@@ -5,6 +5,14 @@ export type ResponseType = "json" | "text" | "arrayBuffer" | "blob" | "stream"
 export type MaybeArray<T> = T | T[]
 
 /**
+ * Per-request user data carried on `init.meta` and reachable via
+ * `ctx.options.meta` in every hook. Empty by default — augment via module
+ * augmentation in your project to add typed keys (TanStack Query pattern).
+ */
+// biome-ignore lint/complexity/noBannedTypes: empty interface is the augmentation surface
+export interface MisinaMeta {}
+
+/**
  * Per-phase mutable context shared across hooks for a single request lifecycle.
  * `request` and `response` are populated as the lifecycle progresses.
  */
@@ -148,6 +156,21 @@ export interface MisinaOptions {
    */
   trailingSlash?: "preserve" | "strip" | "forbid"
   /**
+   * Per-request user data — flows through every hook on `ctx.options.meta`.
+   *
+   * Use module augmentation to type your project's keys:
+   *
+   * ```ts
+   * declare module "misina" {
+   *   interface MisinaMeta {
+   *     tag?: string
+   *     tenant?: string
+   *   }
+   * }
+   * ```
+   */
+  meta?: MisinaMeta
+  /**
    * HTTP headers. Accepts a Record, a Headers instance, or [k, v] tuple pairs.
    * Values that are `undefined` or `null` are silently dropped — handy for
    * optional headers like `{ authorization: token ?? undefined }`.
@@ -279,6 +302,7 @@ export interface MisinaResolvedOptions {
   allowAbsoluteUrls: boolean
   allowedProtocols: readonly string[]
   trailingSlash: "preserve" | "strip" | "forbid"
+  meta: MisinaMeta
   method: HttpMethod
   headers: Record<string, string>
   body?: unknown

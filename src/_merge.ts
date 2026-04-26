@@ -41,6 +41,9 @@ export function mergeOptions(a: MisinaOptions, b: MisinaOptions): MisinaOptions 
       out.headers = mergeHeaders(a.headers, value as HeadersInput)
     } else if (key === "hooks") {
       out.hooks = mergeHookConfigs(a.hooks, value as MisinaHooks)
+    } else if (key === "meta") {
+      // Shallow merge — child keys win, parent keys preserved.
+      out.meta = { ...(a.meta as object), ...(value as object) }
     } else {
       ;(out as Record<string, unknown>)[key] = value
     }

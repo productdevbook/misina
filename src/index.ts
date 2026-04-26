@@ -48,6 +48,7 @@ export type {
   MisinaDriver,
   MisinaDriverFactory,
   MisinaHooks,
+  MisinaMeta,
   MisinaOptions,
   MisinaRequestInit,
   MisinaResolvedOptions,
