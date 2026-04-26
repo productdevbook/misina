@@ -24,13 +24,16 @@ export function resolveUrl(
   assertNoControlChars(input, "input")
   if (baseURL !== undefined) assertNoControlChars(baseURL, "baseURL")
   let resolved: string
+  const schemeRelative = input.startsWith("//")
   if (isAbsoluteUrl(input)) {
     if (!allowAbsoluteUrls && baseURL) {
       throw new Error(
         `misina: absolute URL ${JSON.stringify(input)} rejected because allowAbsoluteUrls is false`,
       )
     }
-    resolved = input
+    // Scheme-relative URLs need a base scheme to parse — resolve against
+    // baseURL when present, otherwise leave as-is for the driver.
+    resolved = schemeRelative && baseURL ? new URL(input, baseURL).toString() : input
   } else if (!baseURL) {
     resolved = input
   } else {
@@ -82,6 +85,9 @@ function assertAllowedProtocol(url: string, allowed: readonly string[]): void {
 }
 
 function isAbsoluteUrl(input: string): boolean {
+  // Scheme-relative URLs ('//host/path') resolve against the base scheme but
+  // change origin — treat them as absolute for the allowAbsoluteUrls gate.
+  if (input.startsWith("//")) return true
   return /^[a-z][a-z0-9+.-]*:/i.test(input)
 }
 
