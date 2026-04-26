@@ -117,6 +117,10 @@
     "./ratelimit": {
       "types": "./dist/ratelimit/index.d.mts",
       "default": "./dist/ratelimit/index.mjs"
+    },
+    "./tracing": {
+      "types": "./dist/tracing/index.d.mts",
+      "default": "./dist/tracing/index.mjs"
     }
   },
   "publishConfig": {

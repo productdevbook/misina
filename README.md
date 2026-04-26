@@ -43,6 +43,8 @@
   - [misina/poll](#misinapoll)
   - [misina/stream](#misinastream)
   - [misina/breaker](#misinabreaker)
+  - [misina/ratelimit](#misinaratelimit)
+  - [misina/tracing](#misinatracing)
 - [Idempotency-Key](#idempotency-key)
 - [RFC 9457 problem+json](#rfc-9457-problemjson)
 - [Fetch Priority](#fetch-priority)
@@ -56,7 +58,6 @@
 - [OpenAPI](#openapi)
 - [Standard Schema Validation](#standard-schema-validation)
 - [Security Defaults](#security-defaults)
-- [Compared To](#compared-to)
 - [Credits](#credits)
 
 ## Highlights
@@ -73,8 +74,8 @@
 - **Streaming** — built-in SSE (WHATWG HTML §9.2 compliant) and NDJSON helpers.
 - **HTTP cache** — RFC 9111 compliant: `Cache-Control: no-store` / `max-age`, ETag / Last-Modified revalidation, `Vary` per-variant keying.
 - **Cookie jar** — RFC 6265 compliant: domain match check, Path matching, Secure flag, Max-Age / Expires.
-- **481 tests** across 69 files, exhaustively covering specs and edge cases.
-- **Subpath helpers**: `auth`, `breaker`, `cache`, `cookie`, `dedupe`, `paginate`, `stream`, `test`.
+- **609 tests** across 81 files, exhaustively covering specs and edge cases.
+- **Subpath helpers**: `auth`, `breaker`, `cache`, `cookie`, `dedupe`, `paginate`, `poll`, `ratelimit`, `stream`, `test`, `tracing`.
 - **Idempotency-Key on retry** (RFC draft) — `idempotencyKey: 'auto'` sends a `crypto.randomUUID()` for retried mutations. No competitor ships this.
 - **RFC 9457 problem+json** parsed onto `HTTPError.problem` automatically.
 - **Circuit breaker** (`misina/breaker`) — Polly-shaped state machine, zero deps.
@@ -84,6 +85,12 @@
 - **HTTP `QUERY` method** (draft-ietf-httpbis-safe-method-w-body) shipped as `misina.query()`.
 - **Opt-in decompression** (`decompress: true | string[]`) — gzip / deflate / br / zstd via `DecompressionStream`.
 - **`bodyTimeout`** — independent cap on response-body read time for slow-streaming servers.
+- **`maxResponseSize`** — byte cap with `Content-Length` fast-path + mid-stream counter; throws `ResponseTooLargeError`.
+- **`requestId`** on `MisinaResponse` and `HTTPError` — auto-scanned from `x-request-id` / `request-id` / `x-correlation-id`. Surfaced in error message as `[req: <id>]`.
+- **LLM SDK retry parity** — `retry-after-ms` (sub-second precision) + `x-should-retry` server hints honored by default.
+- **`Server-Timing` parser** — `MisinaResponse.serverTimings` populated automatically.
+- **W3C Trace Context** (`misina/tracing`) — `withTracing()` injects `traceparent` + `tracestate` + optional Baggage.
+- **Rate-limit header parser** (`misina/ratelimit`) — handles OpenAI / Anthropic / IETF draft styles, normalizes reset values to `Date`.
 
 ## Install
 
@@ -561,6 +568,57 @@ No major fetch client (ofetch, ky, axios, got, wretch) ships a built-in
 breaker — users had to wrap with `cockatiel`/`opossum`. This subpath fits
 naturally with misina's driver pattern and adds zero deps.
 
+### misina/ratelimit
+
+Parser for `x-ratelimit-*` headers. Handles OpenAI / Anthropic style
+(per-bucket suffixes for `requests` and `tokens`) and the IETF draft
+(`RateLimit-Limit` / `RateLimit-Remaining` / `RateLimit-Reset`).
+
+```ts
+import { parseRateLimitHeaders } from "misina/ratelimit"
+
+const info = parseRateLimitHeaders(response.headers)
+if (info?.requests) {
+  console.log("left:", info.requests.remaining, "reset at:", info.requests.resetAt)
+}
+if (info?.tokens) {
+  console.log("tokens left:", info.tokens.remaining)
+}
+```
+
+Reset values normalize to `Date`: ISO 8601, Unix seconds (absolute or
+seconds-from-now via 100k threshold), and duration suffix (`'500ms'`,
+`'30s'`, `'1m30s'`, `'2h15m'`).
+
+### misina/tracing
+
+W3C Trace Context propagator. Auto-injects `traceparent` and forwards
+`tracestate` on every outgoing request. Optional W3C Baggage header.
+
+```ts
+import { withTracing } from "misina/tracing"
+
+const api = withTracing(createMisina({ baseURL }))
+// Each request gets a fresh `traceparent: 00-<32hex>-<16hex>-01`.
+
+// Compose with OpenTelemetry by reading the active span:
+import { trace } from "@opentelemetry/api"
+
+const apiOtel = withTracing(createMisina({ baseURL }), {
+  getCurrentSpan: () => {
+    const span = trace.getActiveSpan()
+    if (!span) return null
+    const ctx = span.spanContext()
+    return { traceId: ctx.traceId, parentId: ctx.spanId, flags: ctx.traceFlags }
+  },
+  baggage: { tenant: "acme", env: "prod" },
+})
+```
+
+Caller-supplied `traceparent` / `Baggage` headers are preserved (no
+overwrite). Each request gets a new parent-id; each Baggage callback is
+evaluated per-request when supplied as a function.
+
 ## Idempotency-Key
 
 Auto-generate `Idempotency-Key` on retried mutations so the server can
@@ -840,15 +898,12 @@ Throws `SchemaValidationError` with `.issues` on mismatch.
 - Cross-origin redirects strip `Authorization`, `Cookie`, `Proxy-Authorization`, `WWW-Authenticate`. Allowlist via `redirectSafeHeaders`.
 - `https → http` redirects refused unless `redirectAllowDowngrade: true`.
 - Header values containing CR/LF/NUL throw — request smuggling guard.
-
-## Compared To
-
-- **`ofetch`** — same shape, richer hooks, retry granularity (`Retry-After`, jitter), `NetworkError`-vs-`HTTPError` distinction, redirect security policy, `safe()` no-throw mode, `onComplete` lifecycle hook, `meta` + `state` per-instance.
-- **`ky`** — closest aesthetic neighbor. Adds driver pattern, cross-runtime cookie jar, pagination, polling, status catchers, dedupe, circuit breaker.
-- **`axios`** — Fetch-first, ESM-only, no XHR fallback in core, no CommonJS dual-build pain. No interceptor mutation surprises. Generic `HTTPError<E>` for typed error bodies.
-- **`got`** — got is Node-only; misina runs everywhere. Pagination + cookie jar borrow got's design without the Node dependency tax.
-- **`wretch`** — flat options object instead of chainable builder, but `.onError(404, ...)` borrows wretch's catcher ergonomics.
-- **None of the above** ship `idempotencyKey: 'auto'`, RFC 9457 problem+json parsing, a built-in circuit breaker, or a `safe()` discriminated-result mode.
+- URL composition (baseURL + path) rejects raw CR/LF/NUL.
+- Path params in `createMisinaTyped` reject `..`, `/`, `\`, NUL (traversal guard).
+- Cross-origin redirects strip `Authorization`, `Cookie`, `Proxy-Authorization`, `WWW-Authenticate`, `Signature`, `Signature-Input`. Configurable via `redirectStripHeaders`.
+- `https → http` redirects refused unless `redirectAllowDowngrade: true`.
+- `maxResponseSize` byte cap with pre-stream Content-Length check + mid-stream byte counter.
+- `allowAbsoluteUrls: false` also rejects scheme-relative URLs (`//other.com/x`).
 
 ## Credits
 
