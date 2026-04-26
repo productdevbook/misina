@@ -23,10 +23,12 @@
 - [Quick Start](#quick-start)
 - [API](#api)
   - [createMisina](#createmisinaoptions)
+  - [HTTP methods](#http-methods)
   - [Hooks](#hooks)
   - [Retry](#retry)
   - [Errors](#errors)
   - [Status-Based Catchers](#status-based-catchers)
+  - [safe() — no-throw mode](#safe--no-throw-mode)
   - [validateResponse](#validateresponse)
   - [Custom JSON](#custom-json)
   - [.extend() and replaceOption](#extend-and-replaceoption)
@@ -38,18 +40,24 @@
   - [misina/cache](#misinacache)
   - [misina/dedupe](#misinadedupe)
   - [misina/paginate](#misinapaginate)
+  - [misina/poll](#misinapoll)
   - [misina/stream](#misinastream)
   - [misina/breaker](#misinabreaker)
 - [Idempotency-Key](#idempotency-key)
 - [RFC 9457 problem+json](#rfc-9457-problemjson)
 - [Fetch Priority](#fetch-priority)
 - [Progress Events](#progress-events)
+- [meta — per-request user data](#meta--per-request-user-data)
+- [state — session-scoped mutable state](#state--session-scoped-mutable-state)
+- [onComplete — terminal lifecycle hook](#oncomplete--terminal-lifecycle-hook)
+- [trailingSlash + allowedProtocols](#trailingslash--allowedprotocols)
 - [defer — Late-Binding Config](#defer--late-binding-config)
 - [Type-Safe Path Generics](#type-safe-path-generics)
 - [OpenAPI](#openapi)
 - [Standard Schema Validation](#standard-schema-validation)
 - [Security Defaults](#security-defaults)
 - [Compared To](#compared-to)
+- [Credits](#credits)
 
 ## Highlights
 
@@ -70,6 +78,10 @@
 - **Idempotency-Key on retry** (RFC draft) — `idempotencyKey: 'auto'` sends a `crypto.randomUUID()` for retried mutations. No competitor ships this.
 - **RFC 9457 problem+json** parsed onto `HTTPError.problem` automatically.
 - **Circuit breaker** (`misina/breaker`) — Polly-shaped state machine, zero deps.
+- **Polling helper** (`misina/poll`) — `until` predicate + interval + composed timeout/abort.
+- **`safe()` mode** — Go-style `{ ok, data, error, response }` discriminated result, no throw.
+- **`HTTPError<E>` typed error body**, `meta` + `state` for per-instance context, `onComplete` for unified observability.
+- **HTTP `QUERY` method** (draft-ietf-httpbis-safe-method-w-body) shipped as `misina.query()`.
 
 ## Install
 
@@ -105,12 +117,20 @@ await api.post("/repos/octocat/hello/issues", {
   body: "test",
 })
 
-// Error handling
+// Error handling — classic try/catch
 import { isHTTPError } from "misina"
 try {
   await api.get("/nope")
 } catch (err) {
   if (isHTTPError(err)) console.log(err.status, err.data)
+}
+
+// Error handling — Go-style, type-safe, no throw
+const result = await api.safe.get<User, ApiError>("/users/42")
+if (result.ok) {
+  result.data // User
+} else {
+  result.error // HTTPError<ApiError> | NetworkError | TimeoutError
 }
 ```
 
@@ -122,41 +142,82 @@ try {
 import { createMisina } from "misina"
 
 const api = createMisina({
-  baseURL: "https://api.example.com", // optional
-  allowAbsoluteUrls: true, // default
+  // URL resolution
+  baseURL: "https://api.example.com",
+  allowAbsoluteUrls: true, // reject if false + absolute URL given
+  allowedProtocols: ["http", "https"], // add 'capacitor', 'tauri', etc.
+  trailingSlash: "preserve", // 'strip' | 'forbid'
+
+  // Headers + body + query
   headers: {
     /* ... */
-  },
-  timeout: 10_000, // per-attempt; false to disable
-  totalTimeout: false, // wall-clock cap incl. retries
-  signal: someAbortSignal, // user signal merged via AbortSignal.any
-  retry: 2, // or full RetryOptions
-  responseType: undefined, // 'json' | 'text' | 'arrayBuffer' | 'blob' | 'stream' | (auto)
-  hooks: {
-    /* ... */
-  },
-  driver: customDriver, // optional override (default: fetch driver)
-  throwHttpErrors: true,
-  validateResponse: undefined,
-  parseJson: JSON.parse,
-  stringifyJson: JSON.stringify,
+  }, // Headers / [k,v][] / Record<string, string|undefined>
   arrayFormat: "repeat", // 'brackets' | 'comma' | 'indices'
   paramsSerializer: undefined,
+  parseJson: JSON.parse,
+  stringifyJson: JSON.stringify,
+
+  // Lifecycle
+  timeout: 10_000, // per-attempt; false to disable
+  totalTimeout: false, // wall-clock cap incl. retries
+  signal: someAbortSignal,
+  retry: 2, // number | false | RetryOptions
+  responseType: undefined, // 'json' | 'text' | 'arrayBuffer' | 'blob' | 'stream'
+
+  // Hooks + drivers
+  hooks: {
+    /* init / beforeRequest / beforeRetry / beforeRedirect /
+              afterResponse / beforeError / onComplete */
+  },
+  driver: customDriver, // default: fetch driver
+  defer: [], // late-binding callbacks
+
+  // Errors
+  throwHttpErrors: true,
+  validateResponse: undefined,
+
+  // Redirect policy
   redirect: "manual", // 'follow' | 'error'
-  redirectSafeHeaders: undefined,
+  redirectSafeHeaders: undefined, // headers to keep on cross-origin redirect
   redirectMaxCount: 5,
-  redirectAllowDowngrade: false,
-  cache: undefined, // standard fetch RequestCache
+  redirectAllowDowngrade: false, // https → http allowed?
+
+  // Modern features
+  idempotencyKey: false, // 'auto' | string | (req) => string | false
+  priority: undefined, // 'high' | 'low' | 'auto'
+  meta: {
+    /* per-request typed user data */
+  },
+  state: {
+    /* session-scoped mutable state */
+  },
+
+  // Framework / runtime passthrough
+  cache: undefined, // RequestCache
   credentials: undefined,
   next: undefined, // Next.js { revalidate, tags }
-  defer: [], // late-binding callbacks
+
+  // Progress
   onUploadProgress: undefined,
   onDownloadProgress: undefined,
+  progressIntervalMs: 0, // throttle ms between callbacks
 })
 ```
 
+### HTTP methods
+
 Returns `Misina` with: `request`, `get`, `post`, `put`, `patch`, `delete`,
-`head`, `options`, `extend`. All methods return a `MisinaResponsePromise<T>`.
+`head`, `options`, `query` (HTTP QUERY method, draft-ietf-httpbis), `extend`,
+plus `safe` for no-throw variants.
+
+```ts
+await api.get<User>("/users/42")
+await api.post<User, ApiError>("/users", body)   // 2nd generic = error body type
+await api.delete("/users/42")
+await api.query("/search", { filter: { ... } })  // safe + idempotent verb with body
+```
+
+All methods return a `MisinaResponsePromise<T, E>`.
 
 ### Hooks
 
@@ -172,6 +233,7 @@ const api = createMisina({
     },
     beforeRetry: async (ctx) => {
       // ctx.error is set; refresh tokens, log, etc.
+      // Can return a Request (override) or Response (short-circuit retries).
     },
     beforeRedirect: ({ request, sameOrigin }) => {
       // fired when redirect: 'manual' (default) follows a redirect
@@ -182,6 +244,10 @@ const api = createMisina({
     beforeError: async (error, ctx) => {
       // must return an Error (transformed or original)
       return error
+    },
+    onComplete: ({ request, response, error, durationMs, attempt }) => {
+      // terminal-state hook — fires once per call after retries
+      // single observation point for logging / metrics / tracing
     },
   },
 })
@@ -248,6 +314,25 @@ const user = await api
   .onError([401, 403], () => redirect("/login"))
   .onError("NetworkError", () => useCachedFallback())
 ```
+
+### safe() — no-throw mode
+
+For UI code where a `try/catch` widens the catch to `unknown`, use the
+no-throw companion. Every shorthand mirrors onto `misina.safe`:
+
+```ts
+const result = await api.safe.get<User, ApiError>("/users/42")
+if (result.ok) {
+  result.data // User — type-safe
+  result.response // MisinaResponse<User>
+} else {
+  result.error // HTTPError<ApiError> | NetworkError | TimeoutError
+  result.response?.status // available on HTTPError; undefined on network errors
+}
+```
+
+The discriminated `{ ok, data, error, response }` union makes both branches
+type-safe at the call site — no `try/catch` plumbing needed.
 
 ### validateResponse
 
@@ -400,6 +485,24 @@ const all = await paginateAll<Item>(api, "/items", {
 })
 ```
 
+### misina/poll
+
+Long-poll a URL until a predicate is satisfied. Composes external + timeout
+signals via `AbortSignal.any`.
+
+```ts
+import { poll, PollExhaustedError } from "misina/poll"
+
+const job = await poll<JobStatus>(misina, "/jobs/42", {
+  interval: 1000,                         // ms — or fn(attempt) => ms
+  timeout: 60_000,                        // total deadline (TimeoutError on exceed)
+  maxAttempts: 30,                        // throws PollExhaustedError when reached
+  signal: external,                       // composes with timeout
+  until: (job) => job.state === "done",
+  init: { headers: { ... } },             // forwarded to misina.get
+})
+```
+
 ### misina/stream
 
 ```ts
@@ -548,6 +651,120 @@ runtimes that support it (Node 22+, Bun, Deno, Chrome 105+). Safari and
 Firefox don't support streaming request bodies yet — on those, the
 callback is silently skipped and the body is sent in one go.
 
+Throttle high-frequency callbacks via `progressIntervalMs`:
+
+```ts
+createMisina({
+  onUploadProgress: ({ percent }) => updateBar(percent),
+  progressIntervalMs: 100, // fire at most once per 100ms
+})
+```
+
+The final 100% event always fires regardless of throttle.
+
+## meta — per-request user data
+
+Per-request data that flows through every hook on `ctx.options.meta`. Type
+via module augmentation (TanStack Query pattern):
+
+```ts
+declare module "misina" {
+  interface MisinaMeta {
+    tag?: string
+    tenant?: string
+    requestId?: string
+  }
+}
+
+const api = createMisina({
+  hooks: {
+    onComplete: ({ options, durationMs }) => {
+      tracer.send({ tag: options.meta?.tag, durationMs })
+    },
+  },
+})
+
+await api.get("/users/42", { meta: { tag: "search", tenant: "acme" } })
+```
+
+`.extend()` shallow-merges meta (child keys win, parent keys preserved).
+
+## state — session-scoped mutable state
+
+Same idea as `meta`, but for **shared, mutable** state across every call on
+one instance. Hooks read AND write `ctx.options.state`:
+
+```ts
+declare module "misina" {
+  interface MisinaState {
+    token?: string
+    requestCount?: number
+  }
+}
+
+const session = createMisina({
+  state: { token: "v1", requestCount: 0 },
+  hooks: {
+    beforeRequest: (ctx) => {
+      ctx.options.state.requestCount! += 1
+      const headers = new Headers(ctx.request.headers)
+      if (ctx.options.state.token) headers.set("authorization", `Bearer ${ctx.options.state.token}`)
+      return new Request(ctx.request, { headers })
+    },
+  },
+})
+
+// Later, from anywhere — token rotation reaches subsequent calls:
+// session.state.token = "v2"  // (via a hook or external refresher)
+```
+
+Same reference shared across calls on one instance. `.extend()` deliberately
+gives the child a fresh state object so mutations don't leak across boundaries.
+
+## onComplete — terminal lifecycle hook
+
+Fires exactly once per logical call after retries + redirects, with either
+`response` or `error` populated. Single observation point for logging,
+metrics, and distributed tracing:
+
+```ts
+createMisina({
+  hooks: {
+    onComplete: ({ request, response, error, durationMs, attempt, options }) => {
+      log({
+        url: request.url,
+        status: response?.status,
+        error: error?.name,
+        durationMs,
+        attempts: attempt + 1,
+        tag: options.meta?.tag,
+      })
+    },
+  },
+})
+```
+
+Covers success, `HTTPError`, `NetworkError`, `TimeoutError` paths uniformly —
+no need to wire `afterResponse` and `beforeError` separately.
+
+## trailingSlash + allowedProtocols
+
+URL guardrails for backends that canonicalize paths or for embedded runtimes
+with custom schemes:
+
+```ts
+createMisina({
+  trailingSlash: "strip", // 'preserve' (default) | 'strip' | 'forbid'
+  allowedProtocols: ["http", "https", "capacitor"], // default ['http','https']
+})
+
+// 'strip' → /users/  becomes /users
+// 'forbid' → throws a clear Error if path ends with /
+// allowedProtocols rejects ftp://, file://, javascript:, etc by default.
+```
+
+Both check the URL after `baseURL` resolution, before dispatch.
+
 ## defer — Late-Binding Config
 
 ```ts
@@ -624,12 +841,12 @@ Throws `SchemaValidationError` with `.issues` on mismatch.
 
 ## Compared To
 
-- **`ofetch`** — same shape, richer hooks, retry granularity (`Retry-After`, jitter), `NetworkError`-vs-`HTTPError` distinction, redirect security policy.
-- **`ky`** — closest aesthetic neighbor. Adds driver pattern, cross-runtime cookie jar, pagination, status catchers, dedupe.
-- **`axios`** — Fetch-first, ESM-only, no XHR fallback in core, no CommonJS dual-build pain. No interceptor mutation surprises.
+- **`ofetch`** — same shape, richer hooks, retry granularity (`Retry-After`, jitter), `NetworkError`-vs-`HTTPError` distinction, redirect security policy, `safe()` no-throw mode, `onComplete` lifecycle hook, `meta` + `state` per-instance.
+- **`ky`** — closest aesthetic neighbor. Adds driver pattern, cross-runtime cookie jar, pagination, polling, status catchers, dedupe, circuit breaker.
+- **`axios`** — Fetch-first, ESM-only, no XHR fallback in core, no CommonJS dual-build pain. No interceptor mutation surprises. Generic `HTTPError<E>` for typed error bodies.
 - **`got`** — got is Node-only; misina runs everywhere. Pagination + cookie jar borrow got's design without the Node dependency tax.
 - **`wretch`** — flat options object instead of chainable builder, but `.onError(404, ...)` borrows wretch's catcher ergonomics.
-- **None of the above** ship `idempotencyKey: 'auto'`, RFC 9457 problem+json parsing, or a built-in circuit breaker.
+- **None of the above** ship `idempotencyKey: 'auto'`, RFC 9457 problem+json parsing, a built-in circuit breaker, or a `safe()` discriminated-result mode.
 
 ## Credits
 
@@ -657,7 +874,7 @@ Specs and standards consulted along the way:
 - **draft-ietf-httpapi-idempotency-key-header**
 
 Built by **[productdevbook](https://github.com/productdevbook)** and
-**[Claude Code](https://claude.com/claude-code)** — 44 audit passes, 394
+**[Claude Code](https://claude.com/claude-code)** — 57+ audit passes, 469
 regression tests, zero deps.
 
 ## License
