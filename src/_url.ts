@@ -21,6 +21,8 @@ export function resolveUrl(
   allowedProtocols: readonly string[] = ["http", "https"],
   trailingSlash: TrailingSlashPolicy = "preserve",
 ): string {
+  assertNoControlChars(input, "input")
+  if (baseURL !== undefined) assertNoControlChars(baseURL, "baseURL")
   let resolved: string
   if (isAbsoluteUrl(input)) {
     if (!allowAbsoluteUrls && baseURL) {
@@ -81,6 +83,18 @@ function assertAllowedProtocol(url: string, allowed: readonly string[]): void {
 
 function isAbsoluteUrl(input: string): boolean {
   return /^[a-z][a-z0-9+.-]*:/i.test(input)
+}
+
+function assertNoControlChars(value: string, label: string): void {
+  // CR/LF/NUL in a URL composition is request-smuggling territory. WHATWG
+  // URL parser tolerates some of these silently — explicit reject keeps
+  // the wire format honest. ofetch hit this in unjs/ofetch#530.
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i)
+    if (code === 0x00 || code === 0x0a || code === 0x0d) {
+      throw new Error(`misina: ${label} contains CR/LF/NUL (offset ${i})`)
+    }
+  }
 }
 
 function ensureTrailingSlash(url: string): string {
