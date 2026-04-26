@@ -113,6 +113,10 @@
     "./poll": {
       "types": "./dist/poll/index.d.mts",
       "default": "./dist/poll/index.mjs"
+    },
+    "./ratelimit": {
+      "types": "./dist/ratelimit/index.d.mts",
+      "default": "./dist/ratelimit/index.mjs"
     }
   },
   "publishConfig": {
