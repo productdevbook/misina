@@ -314,11 +314,12 @@ function resolveOptions(
   const method = (init.method ?? "GET") as HttpMethod
   const baseURL = init.baseURL ?? defaults.baseURL
   const allowAbsoluteUrls = init.allowAbsoluteUrls ?? defaults.allowAbsoluteUrls ?? true
+  const allowedProtocols = init.allowedProtocols ?? defaults.allowedProtocols ?? ["http", "https"]
   const headers = mergeHeaders(defaults.headers, init.headers)
   const arrayFormat = init.arrayFormat ?? defaults.arrayFormat ?? "repeat"
   const paramsSerializer = init.paramsSerializer ?? defaults.paramsSerializer
   const url = appendQuery(
-    resolveUrl(input, baseURL, allowAbsoluteUrls),
+    resolveUrl(input, baseURL, allowAbsoluteUrls, allowedProtocols),
     init.query,
     arrayFormat,
     paramsSerializer,
@@ -329,6 +330,7 @@ function resolveOptions(
   return {
     url,
     allowAbsoluteUrls,
+    allowedProtocols,
     method,
     headers,
     body,

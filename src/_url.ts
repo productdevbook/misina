@@ -7,22 +7,50 @@ import type { ArrayFormat, ParamsSerializer } from "./types.ts"
  * `allowAbsoluteUrls` (default true) controls whether an absolute URL in
  * `input` overrides `baseURL`. Set to false when the caller must be
  * confined to baseURL's origin.
+ *
+ * `allowedProtocols` (default `['http','https']`) gates which URL schemes
+ * are permitted. Embedded runtimes (Capacitor, Tauri) can opt in to their
+ * custom schemes by extending the list.
  */
 export function resolveUrl(
   input: string,
   baseURL: string | undefined,
   allowAbsoluteUrls = true,
+  allowedProtocols: readonly string[] = ["http", "https"],
 ): string {
+  let resolved: string
   if (isAbsoluteUrl(input)) {
     if (!allowAbsoluteUrls && baseURL) {
       throw new Error(
         `misina: absolute URL ${JSON.stringify(input)} rejected because allowAbsoluteUrls is false`,
       )
     }
-    return input
+    resolved = input
+  } else if (!baseURL) {
+    resolved = input
+  } else {
+    resolved = new URL(input, ensureTrailingSlash(baseURL)).toString()
   }
-  if (!baseURL) return input
-  return new URL(input, ensureTrailingSlash(baseURL)).toString()
+  assertAllowedProtocol(resolved, allowedProtocols)
+  return resolved
+}
+
+function assertAllowedProtocol(url: string, allowed: readonly string[]): void {
+  // Skip the check for relative paths — they have no protocol of their own
+  // (the runtime/driver supplies one). Only validate parseable URLs.
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return
+  }
+  // URL.protocol returns "http:" — strip the trailing colon to compare.
+  const scheme = parsed.protocol.replace(/:$/, "").toLowerCase()
+  if (!allowed.includes(scheme)) {
+    throw new Error(
+      `misina: protocol "${parsed.protocol}" not in allowedProtocols (${allowed.join(", ")})`,
+    )
+  }
 }
 
 function isAbsoluteUrl(input: string): boolean {

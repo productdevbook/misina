@@ -133,6 +133,12 @@ export interface MisinaOptions {
   /** Allow absolute URLs in the request input to override baseURL. Default: true. */
   allowAbsoluteUrls?: boolean
   /**
+   * Allowlist of URL protocols misina will dispatch. Default: `["http","https"]`.
+   * Add embedded runtime schemes (`"capacitor"`, `"tauri"`, custom protocols)
+   * here to use them; relative URLs and unparseable inputs skip the check.
+   */
+  allowedProtocols?: readonly string[]
+  /**
    * HTTP headers. Accepts a Record, a Headers instance, or [k, v] tuple pairs.
    * Values that are `undefined` or `null` are silently dropped — handy for
    * optional headers like `{ authorization: token ?? undefined }`.
@@ -262,6 +268,7 @@ export interface MisinaRequestInit extends MisinaOptions {
 export interface MisinaResolvedOptions {
   url: string
   allowAbsoluteUrls: boolean
+  allowedProtocols: readonly string[]
   method: HttpMethod
   headers: Record<string, string>
   body?: unknown
