@@ -221,4 +221,86 @@ describe("beforeRedirect hook — receives prepared next request", () => {
     await m.get("https://api.test/start")
     expect(seen[1]?.xtouched).toBe("yes")
   })
+
+  it("strips Signature + Signature-Input by default on cross-origin redirect", async () => {
+    const seen: { url: string; sig: string | null; sigIn: string | null }[] = []
+    const driver = {
+      name: "redirector",
+      request: async (req: Request) => {
+        seen.push({
+          url: req.url,
+          sig: req.headers.get("signature"),
+          sigIn: req.headers.get("signature-input"),
+        })
+        if (req.url === "https://api.example.com/start") {
+          return new Response(null, {
+            status: 302,
+            headers: { location: "https://other.example.com/dest" },
+          })
+        }
+        return jsonResponse({})
+      },
+    }
+    const m = createMisina({
+      driver,
+      retry: 0,
+      headers: { Signature: "sig=:abc:", "Signature-Input": "sig=();keyid=k1" },
+    })
+    await m.get("https://api.example.com/start")
+    expect(seen[0]?.sig).toBe("sig=:abc:")
+    expect(seen[1]?.sig).toBeNull()
+    expect(seen[1]?.sigIn).toBeNull()
+  })
+
+  it("strips user-supplied redirectStripHeaders on cross-origin redirect", async () => {
+    const seen: { url: string; apiKey: string | null }[] = []
+    const driver = {
+      name: "redirector",
+      request: async (req: Request) => {
+        seen.push({ url: req.url, apiKey: req.headers.get("x-api-key") })
+        if (req.url === "https://api.example.com/start") {
+          return new Response(null, {
+            status: 302,
+            headers: { location: "https://other.example.com/dest" },
+          })
+        }
+        return jsonResponse({})
+      },
+    }
+    const m = createMisina({
+      driver,
+      retry: 0,
+      headers: { "X-Api-Key": "secret-123" },
+      redirectStripHeaders: ["x-api-key"],
+    })
+    await m.get("https://api.example.com/start")
+    expect(seen[0]?.apiKey).toBe("secret-123")
+    expect(seen[1]?.apiKey).toBeNull()
+  })
+
+  it("redirectStripHeaders also applies to same-origin redirects", async () => {
+    const seen: { url: string; apiKey: string | null }[] = []
+    const driver = {
+      name: "redirector",
+      request: async (req: Request) => {
+        seen.push({ url: req.url, apiKey: req.headers.get("x-api-key") })
+        if (req.url === "https://api.example.com/start") {
+          return new Response(null, {
+            status: 302,
+            headers: { location: "https://api.example.com/dest" },
+          })
+        }
+        return jsonResponse({})
+      },
+    }
+    const m = createMisina({
+      driver,
+      retry: 0,
+      headers: { "X-Api-Key": "secret-123" },
+      redirectStripHeaders: ["x-api-key"],
+    })
+    await m.get("https://api.example.com/start")
+    expect(seen[0]?.apiKey).toBe("secret-123")
+    expect(seen[1]?.apiKey).toBeNull()
+  })
 })

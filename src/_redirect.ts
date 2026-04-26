@@ -4,7 +4,14 @@ const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
 
 const DEFAULT_SAFE_HEADERS = ["accept", "accept-encoding", "accept-language", "user-agent"]
 
-const SENSITIVE_HEADERS = ["authorization", "cookie", "proxy-authorization", "www-authenticate"]
+const SENSITIVE_HEADERS = [
+  "authorization",
+  "cookie",
+  "proxy-authorization",
+  "www-authenticate",
+  "signature",
+  "signature-input",
+]
 
 /**
  * Walk the driver through redirects manually so we can apply our header
@@ -68,6 +75,7 @@ export async function followRedirects(
       Object.fromEntries(current.headers),
       sameOrigin,
       options.redirectSafeHeaders,
+      options.redirectStripHeaders,
     )
 
     const downgrade = shouldDowngradeToGet(response.status, current.method)
@@ -147,13 +155,29 @@ function filterRedirectHeaders(
   headers: Record<string, string>,
   sameOrigin: boolean,
   safeList: string[] | undefined,
+  extraStrip: string[] | undefined,
 ): Record<string, string> {
-  if (sameOrigin) return headers
+  const stripSet = new Set(SENSITIVE_HEADERS)
+  if (extraStrip) for (const h of extraStrip) stripSet.add(h.toLowerCase())
+  if (sameOrigin) {
+    if (stripSet.size === SENSITIVE_HEADERS.length && !extraStrip) return headers
+    // Same-origin: keep everything except the explicit strip list. Built-in
+    // sensitive headers stay (same-origin can carry Authorization safely);
+    // user-supplied extras are still stripped, since they likely target a
+    // service-token leak that defense-in-depth wants gone everywhere.
+    if (!extraStrip) return headers
+    const out: Record<string, string> = {}
+    const extraStripLower = new Set(extraStrip.map((h) => h.toLowerCase()))
+    for (const [k, v] of Object.entries(headers)) {
+      if (!extraStripLower.has(k.toLowerCase())) out[k] = v
+    }
+    return out
+  }
   const safe = new Set((safeList ?? DEFAULT_SAFE_HEADERS).map((h) => h.toLowerCase()))
   const out: Record<string, string> = {}
   for (const [k, v] of Object.entries(headers)) {
     const lower = k.toLowerCase()
-    if (SENSITIVE_HEADERS.includes(lower)) continue
+    if (stripSet.has(lower)) continue
     if (safe.has(lower)) out[k] = v
   }
   return out

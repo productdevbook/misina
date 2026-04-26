@@ -254,6 +254,13 @@ export interface MisinaOptions {
   redirect?: "manual" | "follow" | "error"
   /** Allowlist of headers preserved on cross-origin redirects. Default: accept, accept-encoding, accept-language, user-agent. */
   redirectSafeHeaders?: string[]
+  /**
+   * Additional headers to strip on cross-origin redirects. Appended to the
+   * built-in list (`authorization`, `cookie`, `proxy-authorization`,
+   * `www-authenticate`, `signature`, `signature-input`). Use this for custom
+   * auth headers (`x-api-key`, `x-aws-token`, etc.).
+   */
+  redirectStripHeaders?: string[]
   /** Max redirects to follow before throwing. Default: 5. */
   redirectMaxCount?: number
   /** Allow https → http redirect. Default: false. */
@@ -396,6 +403,7 @@ export interface MisinaResolvedOptions {
   next: { revalidate?: number | false; tags?: string[] } | undefined
   redirect: "manual" | "follow" | "error"
   redirectSafeHeaders: string[] | undefined
+  redirectStripHeaders: string[] | undefined
   redirectMaxCount: number
   redirectAllowDowngrade: boolean
   throwHttpErrors: boolean
