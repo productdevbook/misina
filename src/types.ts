@@ -23,6 +23,19 @@ export interface MisinaMeta {}
 export interface MisinaState {}
 
 /**
+ * Augmentation surface for runtime-specific `RequestInit` knobs that get
+ * passed through to the underlying `fetch`. Empty by default; runtime
+ * subpaths declare typed properties here (e.g. `cf` for Cloudflare via
+ * `import "misina/runtime/cloudflare"`).
+ *
+ * `MisinaOptions` extends this so user-supplied knobs round-trip end-to-end
+ * without hitting TS2717 (which forbids re-declaring `cf` on `MisinaOptions`
+ * with a different type).
+ */
+// biome-ignore lint/complexity/noBannedTypes: empty interface is the augmentation surface
+export interface MisinaRuntimeOptions {}
+
+/**
  * Per-phase mutable context shared across hooks for a single request lifecycle.
  * `request` and `response` are populated as the lifecycle progresses.
  */
@@ -164,7 +177,7 @@ export interface ResolvedHooks {
   onComplete: OnCompleteHook[]
 }
 
-export interface MisinaOptions {
+export interface MisinaOptions extends MisinaRuntimeOptions {
   baseURL?: string
   /** Allow absolute URLs in the request input to override baseURL. Default: true. */
   allowAbsoluteUrls?: boolean
@@ -378,7 +391,7 @@ export interface MisinaRequestInit extends MisinaOptions {
 /**
  * Resolved, normalized options after defaults merge. Hooks receive this.
  */
-export interface MisinaResolvedOptions {
+export interface MisinaResolvedOptions extends MisinaRuntimeOptions {
   url: string
   allowAbsoluteUrls: boolean
   allowedProtocols: readonly string[]

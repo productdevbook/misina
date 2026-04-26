@@ -41,6 +41,7 @@ import type {
   MisinaResponse,
   MisinaResponsePromise,
   MisinaResult,
+  MisinaRuntimeOptions,
   MisinaState,
   SafeMisina,
 } from "./types.ts"
@@ -51,6 +52,11 @@ import type {
 const METHODS_WITHOUT_BODY: HttpMethod[] = ["GET", "HEAD", "OPTIONS"]
 
 const DEFAULT_TIMEOUT = 10_000
+
+// Keys declared on MisinaRuntimeOptions via subpath augmentation (e.g.
+// `cf` from misina/runtime/cloudflare). Forwarded opaquely from MisinaOptions
+// to RequestInit and onto MisinaResolvedOptions.
+const RUNTIME_KEYS = ["cf"] as const
 
 export function createMisina(defaults: MisinaOptions = {}): Misina {
   const driver: MisinaDriver =
@@ -506,6 +512,9 @@ function resolveOptions(
     decompress: init.decompress ?? defaults.decompress ?? false,
     idempotencyKey: init.idempotencyKey ?? defaults.idempotencyKey ?? false,
     next: init.next ?? defaults.next,
+    // Forward all keys declared on MisinaRuntimeOptions (e.g. `cf` from
+    // misina/runtime/cloudflare). Per-request init wins over defaults.
+    ...mergeRuntimeOptions(init, defaults),
     redirect: init.redirect ?? defaults.redirect ?? "manual",
     redirectSafeHeaders: init.redirectSafeHeaders ?? defaults.redirectSafeHeaders,
     redirectStripHeaders: init.redirectStripHeaders ?? defaults.redirectStripHeaders,
@@ -523,6 +532,17 @@ function resolveOptions(
 
 function defaultParseJson(text: string): unknown {
   return JSON.parse(text)
+}
+
+function mergeRuntimeOptions(init: MisinaOptions, defaults: MisinaOptions): MisinaRuntimeOptions {
+  const out: Record<string, unknown> = {}
+  for (const key of RUNTIME_KEYS) {
+    const fromInit = (init as Record<string, unknown>)[key]
+    const fromDefaults = (defaults as Record<string, unknown>)[key]
+    if (fromInit !== undefined) out[key] = fromInit
+    else if (fromDefaults !== undefined) out[key] = fromDefaults
+  }
+  return out as MisinaRuntimeOptions
 }
 
 type HeadersInput = HeadersInit | Record<string, string | undefined> | undefined
@@ -601,6 +621,10 @@ async function buildRequest(
   if (options.cache !== undefined) init.cache = options.cache
   if (options.credentials !== undefined) init.credentials = options.credentials
   if (options.next !== undefined) init.next = options.next
+  for (const key of RUNTIME_KEYS) {
+    const value = (options as unknown as Record<string, unknown>)[key]
+    if (value !== undefined) (init as unknown as Record<string, unknown>)[key] = value
+  }
   if (options.priority !== undefined) {
     ;(init as RequestInit & { priority?: "high" | "low" | "auto" }).priority = options.priority
   }
