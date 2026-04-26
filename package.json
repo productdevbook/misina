@@ -153,6 +153,14 @@
     "./runtime/cloudflare": {
       "types": "./dist/runtime/cloudflare/index.d.mts",
       "default": "./dist/runtime/cloudflare/index.mjs"
+    },
+    "./runtime/bun": {
+      "types": "./dist/runtime/bun/index.d.mts",
+      "default": "./dist/runtime/bun/index.mjs"
+    },
+    "./runtime/deno": {
+      "types": "./dist/runtime/deno/index.d.mts",
+      "default": "./dist/runtime/deno/index.mjs"
     }
   },
   "publishConfig": {

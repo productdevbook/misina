@@ -57,7 +57,7 @@ const DEFAULT_TIMEOUT = 10_000
 // Keys declared on MisinaRuntimeOptions via subpath augmentation (e.g.
 // `cf` from misina/runtime/cloudflare). Forwarded opaquely from MisinaOptions
 // to RequestInit and onto MisinaResolvedOptions.
-const RUNTIME_KEYS = ["cf"] as const
+const RUNTIME_KEYS = ["cf", "tls", "unix", "proxy", "verbose", "client"] as const
 
 export function createMisina(defaults: MisinaOptions = {}): Misina {
   const driver: MisinaDriver =
