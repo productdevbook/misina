@@ -1367,34 +1367,19 @@ distributed-tracing context belongs in the same log line.
 
 ## Benchmarks
 
-Reproducible suite under `bench/` ([mitata](https://github.com/evanwashere/mitata))
-runs misina against ofetch / ky / axios / native `fetch` over a local
-`node:http` fixture. Run with:
+Reproducible mitata suite under [`bench/`](./bench/README.md) compares
+misina against ofetch / ky / axios / native `fetch` over a local
+`node:http` fixture:
 
 ```sh
 pnpm bench
 ```
 
-Sample numbers from a Node 24 / macOS / Apple Silicon laptop (lower is
-better):
-
-| Suite                            | native fetch |    ofetch |     ky |  axios | **misina** |
-| -------------------------------- | -----------: | --------: | -----: | -----: | ---------: |
-| Steady GET (200 OK + JSON parse) |    **63 µs** |     65 µs |  75 µs | 106 µs |      78 µs |
-| POST JSON body (+ JSON parse)    |        88 µs | **82 µs** | 133 µs |  95 µs |     137 µs |
-
-Other measurements:
-
-| Operation                              |       Time |
-| -------------------------------------- | ---------: |
-| `createMisina()` cold start            | **176 ns** |
-| Hook overhead (5 noop beforeRequest)   |  **+3 µs** |
-| Retry 503 → 200 (1 retry, 1ms backoff) |    1.48 ms |
-
-These are end-to-end (request build → wire → parse) on localhost; real
-networks dominate at the millisecond scale, so library overhead is
-usually noise. The suite exists so we can spot regressions across
-releases, not to declare a winner.
+See [**bench/README.md**](./bench/README.md) for the full results
+tables, suite descriptions, and notes on what these numbers don't
+prove. tl;dr: in a steady-state GET on localhost (Node 24 / Apple
+Silicon) misina is ~79 µs vs ofetch's 64 µs / native fetch's 72 µs —
+within noise of the wrappers, well under any real-network RTT.
 
 ## Idempotency-Key
 
