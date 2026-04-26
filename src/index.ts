@@ -50,6 +50,7 @@ export type {
   MisinaHooks,
   MisinaMeta,
   MisinaOptions,
+  MisinaState,
   MisinaRequestInit,
   MisinaResolvedOptions,
   MisinaResponse,

@@ -15,6 +15,14 @@ export type MaybeArray<T> = T | T[]
 export interface MisinaMeta {}
 
 /**
+ * Session-scoped mutable state shared by every call on a Misina instance.
+ * Hooks read and write `ctx.options.state` directly. Empty by default —
+ * augment in your project to add typed keys (matches MisinaMeta pattern).
+ */
+// biome-ignore lint/complexity/noBannedTypes: empty interface is the augmentation surface
+export interface MisinaState {}
+
+/**
  * Per-phase mutable context shared across hooks for a single request lifecycle.
  * `request` and `response` are populated as the lifecycle progresses.
  */
@@ -176,6 +184,13 @@ export interface MisinaOptions {
    */
   trailingSlash?: "preserve" | "strip" | "forbid"
   /**
+   * Session-scoped mutable state — shared by every call on this instance.
+   * Hooks can read AND write `ctx.options.state` to coordinate auth tokens,
+   * counters, etc. NOT merged on `.extend()` — child instances get their
+   * own state object so a child mutation doesn't leak to the parent.
+   */
+  state?: MisinaState
+  /**
    * Per-request user data — flows through every hook on `ctx.options.meta`.
    *
    * Use module augmentation to type your project's keys:
@@ -329,6 +344,12 @@ export interface MisinaResolvedOptions {
   allowedProtocols: readonly string[]
   trailingSlash: "preserve" | "strip" | "forbid"
   meta: MisinaMeta
+  /**
+   * Session state — same reference shared across every call on this
+   * instance. Hooks can mutate it freely. Type via module augmentation
+   * of `MisinaState` to add fields.
+   */
+  state: MisinaState
   method: HttpMethod
   headers: Record<string, string>
   body?: unknown

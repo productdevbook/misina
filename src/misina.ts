@@ -26,6 +26,7 @@ import type {
   MisinaResponse,
   MisinaResponsePromise,
   MisinaResult,
+  MisinaState,
   SafeMisina,
 } from "./types.ts"
 
@@ -39,12 +40,16 @@ const DEFAULT_TIMEOUT = 10_000
 export function createMisina(defaults: MisinaOptions = {}): Misina {
   const driver: MisinaDriver =
     defaults.driver ?? fetchDriverFactory({ fetch: defaults.fetch } as never)
+  // Per-instance shared state. Same reference returned to every call so
+  // hooks can read AND mutate. Initialize from defaults.state if provided
+  // (NOT cloned — caller owns the object lifecycle). Otherwise empty.
+  const sharedState: MisinaState = (defaults.state ?? {}) as MisinaState
 
   async function request<T = unknown>(
     input: string,
     init: MisinaRequestInit = {},
   ): Promise<MisinaResponse<T>> {
-    const options = resolveOptions(input, init, defaults)
+    const options = resolveOptions(input, init, defaults, sharedState)
     const startedAt = performance.now()
 
     for (const initHook of options.hooks.init) initHook(options)
@@ -392,6 +397,7 @@ function resolveOptions(
   input: string,
   init: MisinaRequestInit,
   defaults: MisinaOptions,
+  sharedState: MisinaState,
 ): MisinaResolvedOptions {
   const method = (init.method ?? "GET") as HttpMethod
   const baseURL = init.baseURL ?? defaults.baseURL
@@ -416,6 +422,7 @@ function resolveOptions(
     allowedProtocols,
     trailingSlash,
     meta: { ...defaults.meta, ...init.meta },
+    state: sharedState,
     method,
     headers,
     body,

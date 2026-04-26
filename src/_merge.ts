@@ -44,6 +44,10 @@ export function mergeOptions(a: MisinaOptions, b: MisinaOptions): MisinaOptions 
     } else if (key === "meta") {
       // Shallow merge — child keys win, parent keys preserved.
       out.meta = { ...(a.meta as object), ...(value as object) }
+    } else if (key === "state") {
+      // State is per-instance — never inherit parent's state on .extend().
+      // Replace cleanly so child mutations don't leak across boundaries.
+      out.state = value as MisinaOptions["state"]
     } else {
       ;(out as Record<string, unknown>)[key] = value
     }
