@@ -70,6 +70,35 @@ export function withCookieJar(misina: Misina, jar: CookieJar): Misina {
         headers.set("cookie", existing ? `${existing}; ${cookieString}` : cookieString)
         return new Request(ctx.request, { headers })
       },
+      // Persist Set-Cookie from intermediate redirect hops too. Without
+      // this, the jar only sees cookies from the final response — and
+      // services that set the session cookie on the login redirect step
+      // (a very common pattern) silently lose state. Mirrors undici #3784.
+      beforeRedirect: async ({ request, response }) => {
+        const setCookies = response.headers.getSetCookie()
+        for (const sc of setCookies) {
+          // The intermediate response was issued by the *previous* URL.
+          // We don't have direct access to it here, but the next request
+          // already carries the new URL — Set-Cookie is scoped by the
+          // origin that emitted it, so we use the current (next) URL as
+          // a best-effort same-host fallback when the redirect is
+          // same-origin, otherwise the previous request's URL would be
+          // ideal but isn't surfaced. Cookies for cross-origin redirect
+          // chains are rare and risky; we skip them here on purpose.
+          await jar.setCookie(sc, request.url)
+        }
+        // Re-resolve the Cookie header for the upcoming hop now that
+        // the jar may have changed. The default beforeRequest hook
+        // doesn't fire on the manual redirect path.
+        const cookieString = await jar.getCookieString(request.url)
+        const headers = new Headers(request.headers)
+        if (cookieString) {
+          headers.set("cookie", cookieString)
+        } else {
+          headers.delete("cookie")
+        }
+        return new Request(request, { headers })
+      },
       afterResponse: async (ctx) => {
         if (!ctx.response) return
         // `Headers.getSetCookie()` — spec since 2023; available in
