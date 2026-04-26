@@ -30,6 +30,7 @@ const BUDGETS = [
   { match: (p) => p.startsWith("ratelimit/"), max: 5_500, label: "ratelimit" },
   { match: (p) => p.startsWith("tracing/"), max: 2_500, label: "tracing" },
   { match: (p) => p.startsWith("beacon/"), max: 2_000, label: "beacon" },
+  { match: (p) => p.startsWith("graphql/"), max: 4_000, label: "graphql" },
   { match: (p) => p.startsWith("runtime/"), max: 200, label: "runtime augmentation" },
   { match: (p) => p.startsWith("openapi/"), max: 200, label: "openapi (type-only)" },
   { match: (p) => p === "typed.mjs", max: 6_000, label: "typed" },

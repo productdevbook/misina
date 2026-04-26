@@ -126,6 +126,10 @@
       "types": "./dist/beacon/index.d.mts",
       "default": "./dist/beacon/index.mjs"
     },
+    "./graphql": {
+      "types": "./dist/graphql/index.d.mts",
+      "default": "./dist/graphql/index.mjs"
+    },
     "./runtime/cloudflare": {
       "types": "./dist/runtime/cloudflare/index.d.mts",
       "default": "./dist/runtime/cloudflare/index.mjs"
