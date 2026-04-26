@@ -130,6 +130,10 @@
       "types": "./dist/graphql/index.d.mts",
       "default": "./dist/graphql/index.mjs"
     },
+    "./hedge": {
+      "types": "./dist/hedge/index.d.mts",
+      "default": "./dist/hedge/index.mjs"
+    },
     "./runtime/cloudflare": {
       "types": "./dist/runtime/cloudflare/index.d.mts",
       "default": "./dist/runtime/cloudflare/index.mjs"
