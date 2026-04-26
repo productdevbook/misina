@@ -119,7 +119,42 @@ export function createMisinaTyped<E extends EndpointsMap>(
   }
 }
 
-function substitutePathParams(path: string, params: Record<string, string | number>): string {
+/**
+ * Extract path-parameter names from a literal template, supporting both
+ * `:name` and `{name}` syntaxes. Used by `path()` to type the params arg.
+ */
+export type PathParamsOf<T extends string> = T extends `${string}:${infer Param}/${infer Rest}`
+  ? { [K in Param | keyof PathParamsOf<`/${Rest}`>]: string | number }
+  : T extends `${string}:${infer Param}`
+    ? { [K in Param]: string | number }
+    : T extends `${string}{${infer Param}}${infer Rest}`
+      ? { [K in Param | keyof PathParamsOf<Rest>]: string | number }
+      : Record<string, never>
+
+/**
+ * Build a path string from a template + params. Substitutes `:name` and
+ * `{name}` placeholders. Rejects values that would escape the template
+ * (`..`, `/`, `\`, NUL, CR/LF) per misina's security model.
+ *
+ * @example
+ * ```ts
+ * import { path } from "misina"
+ *
+ * path("/users/:id/posts/:postId", { id: "42", postId: "7" })
+ * // → "/users/42/posts/7"
+ * ```
+ */
+export function path<T extends string>(
+  template: T,
+  params: PathParamsOf<T> & Record<string, string | number>,
+): string {
+  return substitutePathParams(template, params as Record<string, string | number>)
+}
+
+export function substitutePathParams(
+  path: string,
+  params: Record<string, string | number>,
+): string {
   return path
     .replace(/:([A-Za-z_][A-Za-z0-9_]*)/g, (_, key: string) => {
       const value = params[key]

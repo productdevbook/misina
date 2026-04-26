@@ -10,10 +10,13 @@ export { createMisina } from "./misina.ts"
 export {
   createMisinaTyped,
   isSchemaValidationError,
+  path,
   SchemaValidationError,
   validated,
   validateSchema,
 } from "./typed.ts"
+
+export type { PathParamsOf } from "./typed.ts"
 
 export { defineDriver } from "./driver/_define.ts"
 
