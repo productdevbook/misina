@@ -4,7 +4,7 @@
  *
  * No package dependency: pass any object that satisfies the minimal
  * `SentryHub` shape (`@sentry/browser`, `@sentry/node`, `@sentry/core`,
- * or your own wrapper). Peer-dep yok — kullanıcı zaten Sentry kuruyor.
+ * or your own wrapper). No peer dep — you already install Sentry yourself.
  *
  * @example
  * ```ts
