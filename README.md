@@ -45,6 +45,7 @@
   - [misina/breaker](#misinabreaker)
   - [misina/ratelimit](#misinaratelimit)
   - [misina/tracing](#misinatracing)
+  - [misina/runtime/cloudflare](#misinaruntimecloudflare)
 - [Idempotency-Key](#idempotency-key)
 - [RFC 9457 problem+json](#rfc-9457-problemjson)
 - [Fetch Priority](#fetch-priority)
@@ -74,7 +75,7 @@
 - **Streaming** — built-in SSE (WHATWG HTML §9.2 compliant) and NDJSON helpers.
 - **HTTP cache** — RFC 9111 compliant: `Cache-Control: no-store` / `max-age`, ETag / Last-Modified revalidation, `Vary` per-variant keying.
 - **Cookie jar** — RFC 6265 compliant: domain match check, Path matching, Secure flag, Max-Age / Expires.
-- **609 tests** across 81 files, exhaustively covering specs and edge cases.
+- **661 tests** across 90 files, exhaustively covering specs and edge cases.
 - **Subpath helpers**: `auth`, `breaker`, `cache`, `cookie`, `dedupe`, `paginate`, `poll`, `ratelimit`, `stream`, `test`, `tracing`.
 - **Idempotency-Key on retry** (RFC draft) — `idempotencyKey: 'auto'` sends a `crypto.randomUUID()` for retried mutations. No competitor ships this.
 - **RFC 9457 problem+json** parsed onto `HTTPError.problem` automatically.
@@ -538,6 +539,19 @@ const job = await poll<JobStatus>(misina, "/jobs/42", {
 })
 ```
 
+`followAccepted` covers the common 202 + Location async-job pattern:
+
+```ts
+import { followAccepted } from "misina/poll"
+
+const result = await followAccepted<JobResult>(misina, {
+  trigger: () => misina.post("/jobs", body), // returns 202 + Location
+  interval: 2000,
+  timeout: 5 * 60_000,
+  until: (data) => data.status === "completed",
+})
+```
+
 ### misina/stream
 
 ```ts
@@ -552,6 +566,35 @@ const res2 = await api.get("/feed.ndjson", { responseType: "stream" })
 for await (const item of ndjsonStream<Item>(res2.raw)) {
   console.log(item)
 }
+```
+
+LLM tool-call accumulators ship from the same subpath:
+
+```ts
+import { accumulateAnthropicMessage, accumulateOpenAIToolCalls, collect } from "misina/stream"
+
+// OpenAI: drains the SSE stream and merges delta.tool_calls[] indexed
+// by `index`; stops at [DONE].
+const calls = await accumulateOpenAIToolCalls(sseStream(res.raw))
+
+// Anthropic: drains a Messages stream (named events) and assembles
+// the final message with text + tool_use blocks.
+const message = await accumulateAnthropicMessage(sseStream(res.raw))
+
+// Generic Array.reduce for async iterables — building block.
+const total = await collect(sseStream(res.raw), (n) => n + 1, 0)
+```
+
+Streams (and `paginate`, `poll`) implement `[Symbol.asyncDispose]` so
+TC39 explicit resource management works:
+
+```ts
+{
+  await using stream = sseStream(res.raw)
+  for await (const ev of stream) {
+    /* ... */
+  }
+} // stream auto-aborted on scope exit
 ```
 
 ### misina/breaker
@@ -596,21 +639,28 @@ naturally with misina's driver pattern and adds zero deps.
 
 ### misina/ratelimit
 
-Parser for `x-ratelimit-*` headers. Handles OpenAI / Anthropic style
-(per-bucket suffixes for `requests` and `tokens`) and the IETF draft
-(`RateLimit-Limit` / `RateLimit-Remaining` / `RateLimit-Reset`).
+Parser for `x-ratelimit-*` headers + an in-process token bucket.
 
 ```ts
-import { parseRateLimitHeaders } from "misina/ratelimit"
+import { parseRateLimitHeaders, withRateLimit } from "misina/ratelimit"
 
+// Read what the server says.
 const info = parseRateLimitHeaders(response.headers)
-if (info?.requests) {
-  console.log("left:", info.requests.remaining, "reset at:", info.requests.resetAt)
-}
-if (info?.tokens) {
-  console.log("tokens left:", info.tokens.remaining)
-}
+console.log(info?.requests?.remaining, info?.tokens?.remaining)
+
+// Or wire a client-side limiter that gates dispatch and learns from
+// the response headers automatically:
+const api = withRateLimit(createMisina({ baseURL }), {
+  rpm: 500,
+  tpm: 100_000,
+  estimateTokens: (req) => approximateInputTokens(req),
+})
 ```
+
+`withRateLimit` acquires from both buckets in `beforeRequest`, snaps
+the buckets to the server's `x-ratelimit-remaining-*` numbers in
+`onComplete`, and parks both until `resetAt` on a 429. AbortSignal
+cancels a queued acquire.
 
 Reset values normalize to `Date`: ISO 8601, Unix seconds (absolute or
 seconds-from-now via 100k threshold), and duration suffix (`'500ms'`,
@@ -644,6 +694,39 @@ const apiOtel = withTracing(createMisina({ baseURL }), {
 Caller-supplied `traceparent` / `Baggage` headers are preserved (no
 overwrite). Each request gets a new parent-id; each Baggage callback is
 evaluated per-request when supplied as a function.
+
+### misina/runtime/cloudflare
+
+Type-only augmentation for Cloudflare Workers. Importing the module
+narrows `MisinaOptions.cf` to the documented `cf` property bag
+(`cacheTtl`, `cacheKey`, `cacheEverything`, `polish`, `image`, etc.).
+The value is forwarded opaquely to the underlying `fetch` so workerd
+acts on it.
+
+```ts
+import "misina/runtime/cloudflare"
+
+await api.get("/asset", { cf: { cacheTtl: 86_400, cacheEverything: true } })
+```
+
+Same augmentation surface (`MisinaRuntimeOptions`) is reserved for
+future `runtime/bun` and `runtime/deno` subpaths.
+
+## Server-Timing
+
+Every `MisinaResponse` carries a parsed `serverTimings` array (W3C
+Server-Timing). Empty when the header is absent.
+
+```ts
+const r = await api.get("/")
+for (const t of r.serverTimings) {
+  console.log(t.name, t.dur, t.desc)
+}
+
+// Or parse from any Headers manually:
+import { parseServerTiming } from "misina"
+const entries = parseServerTiming(headers.get("server-timing"))
+```
 
 ## Idempotency-Key
 
@@ -884,6 +967,36 @@ const list = await api.get("/users", { query: { page: 2 } })
 ```
 
 Path params are substituted at runtime: `/users/:id` → `/users/42` (also `{id}` syntax).
+
+For one-off URL building outside the typed client, use `path()`:
+
+```ts
+import { path } from "misina"
+
+path("/users/:id/posts/:postId", { id: "42", postId: "7" })
+// → "/users/42/posts/7"
+```
+
+`path()` (and `createMisinaTyped`) reject values that would escape the
+template — `..`, `/`, `\`, NUL, CR/LF.
+
+## File uploads — `toFile()`
+
+Build a `File` from any byte-bearing source (string, Uint8Array,
+ArrayBuffer, Blob, ReadableStream, async iterable). Useful for
+multipart uploads to LLM vision / audio / files endpoints.
+
+```ts
+import { toFile } from "misina"
+
+const fd = new FormData()
+fd.append("file", await toFile("image.jpg", readableStream, { type: "image/jpeg" }))
+await api.post("/vision", fd)
+```
+
+The body serializer also auto-wraps **async iterables** with
+`ReadableStream.from(...)` — async generators or Node `Readable`
+streams can be passed as `body` directly.
 
 ## OpenAPI
 
