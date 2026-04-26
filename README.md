@@ -73,7 +73,7 @@
 - **Streaming** — built-in SSE (WHATWG HTML §9.2 compliant) and NDJSON helpers.
 - **HTTP cache** — RFC 9111 compliant: `Cache-Control: no-store` / `max-age`, ETag / Last-Modified revalidation, `Vary` per-variant keying.
 - **Cookie jar** — RFC 6265 compliant: domain match check, Path matching, Secure flag, Max-Age / Expires.
-- **469 tests** across 67 files, exhaustively covering specs and edge cases.
+- **481 tests** across 69 files, exhaustively covering specs and edge cases.
 - **Subpath helpers**: `auth`, `breaker`, `cache`, `cookie`, `dedupe`, `paginate`, `stream`, `test`.
 - **Idempotency-Key on retry** (RFC draft) — `idempotencyKey: 'auto'` sends a `crypto.randomUUID()` for retried mutations. No competitor ships this.
 - **RFC 9457 problem+json** parsed onto `HTTPError.problem` automatically.
@@ -82,6 +82,8 @@
 - **`safe()` mode** — Go-style `{ ok, data, error, response }` discriminated result, no throw.
 - **`HTTPError<E>` typed error body**, `meta` + `state` for per-instance context, `onComplete` for unified observability.
 - **HTTP `QUERY` method** (draft-ietf-httpbis-safe-method-w-body) shipped as `misina.query()`.
+- **Opt-in decompression** (`decompress: true | string[]`) — gzip / deflate / br / zstd via `DecompressionStream`.
+- **`bodyTimeout`** — independent cap on response-body read time for slow-streaming servers.
 
 ## Install
 
@@ -874,7 +876,7 @@ Specs and standards consulted along the way:
 - **draft-ietf-httpapi-idempotency-key-header**
 
 Built by **[productdevbook](https://github.com/productdevbook)** and
-**[Claude Code](https://claude.com/claude-code)** — 57+ audit passes, 469
+**[Claude Code](https://claude.com/claude-code)** — 59+ audit passes, 481
 regression tests, zero deps.
 
 ## License
