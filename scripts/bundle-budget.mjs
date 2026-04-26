@@ -25,6 +25,7 @@ const BUDGETS = [
   { match: (p) => p.startsWith("auth/"), max: 6_000, label: "auth" },
   { match: (p) => p.startsWith("cookie/"), max: 6_000, label: "cookie" },
   { match: (p) => p.startsWith("digest/"), max: 3_000, label: "digest" },
+  { match: (p) => p.startsWith("transfer/"), max: 5_500, label: "transfer" },
   { match: (p) => p.startsWith("test/"), max: 6_000, label: "test" },
   { match: (p) => p.startsWith("breaker/"), max: 4_000, label: "breaker" },
   { match: (p) => p.startsWith("poll/"), max: 2_500, label: "poll" },

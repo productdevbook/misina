@@ -106,6 +106,10 @@
       "types": "./dist/digest/index.d.mts",
       "default": "./dist/digest/index.mjs"
     },
+    "./transfer": {
+      "types": "./dist/transfer/index.d.mts",
+      "default": "./dist/transfer/index.mjs"
+    },
     "./openapi": {
       "types": "./dist/openapi/index.d.mts",
       "default": "./dist/openapi/index.mjs"
