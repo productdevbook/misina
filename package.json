@@ -134,6 +134,10 @@
       "types": "./dist/hedge/index.d.mts",
       "default": "./dist/hedge/index.mjs"
     },
+    "./sentry": {
+      "types": "./dist/sentry/index.d.mts",
+      "default": "./dist/sentry/index.mjs"
+    },
     "./runtime/next": {
       "types": "./dist/runtime/next/index.d.mts",
       "default": "./dist/runtime/next/index.mjs"
