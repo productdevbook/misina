@@ -144,6 +144,14 @@ bunx jsr add @productdevbook/misina
 npx jsr add @productdevbook/misina
 ```
 
+> **Note:** the JSR build skips the four `misina/runtime/*` subpaths
+> (`bun`, `cloudflare`, `deno`, `next`). They use TypeScript ambient
+> module augmentation (`declare module`) which JSR doesn't accept;
+> npm callers get them as usual. JSR users who want runtime-specific
+> typed knobs can paste the `interface MisinaRuntimeOptions { ... }`
+> declaration into their own project — it's the same shape published
+> to npm.
+
 Requires Node ≥ 22.11 / Bun ≥ 1.2 / Deno ≥ 2.0 / Baseline 2024 browsers (Safari 17.4+, Chrome 116+, Firefox 124+). Uses native `AbortSignal.any`, `AbortSignal.timeout`, and `Headers.getSetCookie()` — no polyfills.
 
 ## Quick Start

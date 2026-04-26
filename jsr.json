@@ -30,14 +30,10 @@
     "./graphql": "./src/graphql/index.ts",
     "./hedge": "./src/hedge/index.ts",
     "./otel": "./src/otel/index.ts",
-    "./sentry": "./src/sentry/index.ts",
-    "./runtime/next": "./src/runtime/next/index.ts",
-    "./runtime/cloudflare": "./src/runtime/cloudflare/index.ts",
-    "./runtime/bun": "./src/runtime/bun/index.ts",
-    "./runtime/deno": "./src/runtime/deno/index.ts"
+    "./sentry": "./src/sentry/index.ts"
   },
   "publish": {
     "include": ["src/**/*.ts", "README.md", "LICENSE", "jsr.json"],
-    "exclude": ["src/**/*.test.ts", "test/**"]
+    "exclude": ["src/**/*.test.ts", "test/**", "src/runtime/**"]
   }
 }
