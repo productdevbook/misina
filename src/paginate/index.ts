@@ -41,7 +41,35 @@ export interface PaginateOptions<T, R = unknown> {
  * change in `init`, the iterator stops (prevents infinite loops on a
  * misconfigured `next` callback).
  */
-export async function* paginate<T = unknown, R = unknown>(
+export function paginate<T = unknown, R = unknown>(
+  misina: Misina,
+  input: string,
+  options: PaginateOptions<T, R> = {},
+  init?: MisinaRequestInit,
+): AsyncIterableIterator<T> & AsyncDisposable {
+  return ensureDisposable(_paginate<T, R>(misina, input, options, init))
+}
+
+function ensureDisposable<T>(iter: AsyncIterable<T>): AsyncIterableIterator<T> & AsyncDisposable {
+  const inner = iter[Symbol.asyncIterator]() as AsyncIterableIterator<T>
+  if (typeof (inner as { [Symbol.asyncDispose]?: unknown })[Symbol.asyncDispose] === "function") {
+    return inner as AsyncIterableIterator<T> & AsyncDisposable
+  }
+  const wrapped: AsyncIterableIterator<T> & AsyncDisposable = {
+    next: inner.next.bind(inner) as AsyncIterableIterator<T>["next"],
+    return: inner.return ? inner.return.bind(inner) : undefined,
+    throw: inner.throw ? inner.throw.bind(inner) : undefined,
+    [Symbol.asyncIterator](): AsyncIterableIterator<T> & AsyncDisposable {
+      return wrapped
+    },
+    async [Symbol.asyncDispose](): Promise<void> {
+      await inner.return?.(undefined as unknown as T)
+    },
+  }
+  return wrapped
+}
+
+async function* _paginate<T = unknown, R = unknown>(
   misina: Misina,
   input: string,
   options: PaginateOptions<T, R> = {},

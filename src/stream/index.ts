@@ -4,7 +4,43 @@
  * - `sseStream(response)`: parse `text/event-stream` events.
  * - `ndjsonStream(response)`: parse `application/x-ndjson` line-delimited JSON.
  * - `linesOf(response)`: raw line iterator (delimited by \n).
+ *
+ * All three iterators implement `[Symbol.asyncDispose]` so TC39
+ * explicit resource management (`await using`) works across runtime
+ * baselines. AsyncGenerator's prototype only got native dispose in
+ * Node 24; we ensure-disposable any iterable for Node 22 / Bun / Deno.
  */
+
+/**
+ * Wrap an AsyncIterable so it implements `[Symbol.asyncDispose]` even
+ * on runtimes where the AsyncGenerator prototype lacks it (Node 22 LTS).
+ * Calls `iter.return()` on dispose, which is the spec-correct close
+ * for an active generator.
+ */
+function ensureDisposable<T>(iter: AsyncIterable<T>): AsyncIterableIterator<T> & AsyncDisposable {
+  const inner = (
+    iter as AsyncIterable<T> & {
+      [Symbol.asyncIterator](): AsyncIterableIterator<T>
+    }
+  )[Symbol.asyncIterator]()
+  // If the runtime already provides asyncDispose, re-export the iterator
+  // unchanged so behavior is identical to the native path.
+  if (typeof (inner as { [Symbol.asyncDispose]?: unknown })[Symbol.asyncDispose] === "function") {
+    return inner as AsyncIterableIterator<T> & AsyncDisposable
+  }
+  const wrapped: AsyncIterableIterator<T> & AsyncDisposable = {
+    next: inner.next.bind(inner) as AsyncIterableIterator<T>["next"],
+    return: inner.return ? inner.return.bind(inner) : undefined,
+    throw: inner.throw ? inner.throw.bind(inner) : undefined,
+    [Symbol.asyncIterator](): AsyncIterableIterator<T> & AsyncDisposable {
+      return wrapped
+    },
+    async [Symbol.asyncDispose](): Promise<void> {
+      await inner.return?.(undefined as unknown as T)
+    },
+  }
+  return wrapped
+}
 
 export interface SseEvent {
   /** Event id (from `id:` field). */
@@ -28,7 +64,11 @@ export interface SseEvent {
  * - `id:` containing NUL is ignored per spec.
  * - Events are yielded on a blank line; trailing buffer flushed on stream end.
  */
-export async function* sseStream(response: Response): AsyncIterable<SseEvent> {
+export function sseStream(response: Response): AsyncIterableIterator<SseEvent> & AsyncDisposable {
+  return ensureDisposable(_sseStream(response))
+}
+
+async function* _sseStream(response: Response): AsyncIterable<SseEvent> {
   const body = response.body
   if (!body) return
 
@@ -90,7 +130,13 @@ export async function* sseStream(response: Response): AsyncIterable<SseEvent> {
  * Async-iterate NDJSON / JSON Lines from a Response. Each non-empty line is
  * `JSON.parse`'d. Errors propagate; iterator closes on first parse failure.
  */
-export async function* ndjsonStream<T = unknown>(response: Response): AsyncIterable<T> {
+export function ndjsonStream<T = unknown>(
+  response: Response,
+): AsyncIterableIterator<T> & AsyncDisposable {
+  return ensureDisposable(_ndjsonStream<T>(response))
+}
+
+async function* _ndjsonStream<T = unknown>(response: Response): AsyncIterable<T> {
   for await (const line of linesOf(response)) {
     if (line === "") continue
     yield JSON.parse(line) as T
@@ -101,7 +147,11 @@ export async function* ndjsonStream<T = unknown>(response: Response): AsyncItera
  * Async-iterate raw lines from a Response body. Splits on `\n`; strips
  * trailing `\r`. Decodes as UTF-8.
  */
-export async function* linesOf(response: Response): AsyncIterable<string> {
+export function linesOf(response: Response): AsyncIterableIterator<string> & AsyncDisposable {
+  return ensureDisposable(_linesOf(response))
+}
+
+async function* _linesOf(response: Response): AsyncIterable<string> {
   const body = response.body
   if (!body) return
 
