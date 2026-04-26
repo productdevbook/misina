@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./driver/fetch": "./src/driver/fetch.ts",
     "./driver/mock": "./src/driver/mock.ts",
+    "./driver/undici": "./src/driver/undici.ts",
     "./test": "./src/test/index.ts",
     "./stream": "./src/stream/index.ts",
     "./paginate": "./src/paginate/index.ts",

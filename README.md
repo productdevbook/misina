@@ -89,7 +89,7 @@
 - **Streaming** — built-in SSE (WHATWG HTML §9.2 compliant) and NDJSON helpers.
 - **HTTP cache** — RFC 9111 compliant: `Cache-Control: no-store` / `max-age`, ETag / Last-Modified revalidation, `Vary` per-variant keying.
 - **Cookie jar** — RFC 6265 compliant: domain match check, Path matching, Secure flag, Max-Age / Expires.
-- **812 tests** across 113 files, exhaustively covering specs and edge cases.
+- **816 tests** across 114 files, exhaustively covering specs and edge cases.
 - **Subpath helpers**: `auth`, `auth/oauth`, `auth/sigv4`, `auth/signed`, `beacon`, `breaker`, `cache`, `cookie`, `dedupe`, `digest`, `graphql`, `hedge`, `otel`, `paginate`, `poll`, `ratelimit`, `runtime/{bun,cloudflare,deno,next}`, `sentry`, `stream`, `test`, `tracing`, `transfer`.
 - **Idempotency-Key on retry** (RFC draft) — `idempotencyKey: 'auto'` sends a `crypto.randomUUID()` for retried mutations. No competitor ships this.
 - **RFC 9457 problem+json** parsed onto `HTTPError.problem` automatically.
@@ -117,6 +117,7 @@
 - **AWS SigV4 signer** (`misina/auth/sigv4`) — `withSigV4()` adds `Authorization: AWS4-HMAC-SHA256 ...` + `x-amz-date` + `x-amz-content-sha256` to every request via Web Crypto. No `@aws-sdk/*` peer dep.
 - **RFC 9421 HTTP Message Signatures** (`misina/auth/signed`) — `withMessageSignature()` covers Ed25519 / ECDSA P-256 / RSA-PSS / HMAC-SHA256. Cloudflare Verified Bots / OpenAI Operator pattern.
 - **OpenTelemetry spans** (`misina/otel`) — `withOtel()` emits HTTP client spans with semconv attributes; tracer is duck-typed so misina never imports `@opentelemetry/*`.
+- **Undici driver** (`misina/driver/undici`) — Node-only optional driver that takes any `undici.Agent` / `Pool` / `Client` so callers can tune connection pool, keep-alive, pipelining, and HTTP/2 multiplexing.
 - **VCR-lite test helpers** — `record()` + `recordToJSON()` + `replayFromJSON()` round-trip cassettes; `harToCassette()` imports HAR; `coverage()` flags unused routes; `randomStatus` / `randomNetworkError` for chaos; `misinaCallSerializer` redacts volatile headers in Vitest snapshots.
 - **Typed runtime knobs** — `misina/runtime/{bun,deno,cloudflare,next}` augment `MisinaOptions` with runtime-specific fields (`tls`, `client`, `cf`, `next`).
 
@@ -469,6 +470,36 @@ createMisina({ driver })
 const mock = mockDriver({ response: new Response(JSON.stringify({ ok: 1 })) })
 const test = createMisina({ driver: mock })
 ```
+
+#### misina/driver/undici (Node-only, opt-in)
+
+For high-throughput Node servers (cross-region inference, datawarehouse
+RPCs, internal mesh traffic) the built-in fetch hides every knob behind
+its default agent — five idle connections, no HTTP/2, no keep-alive
+tuning. Swap in the undici driver to take control:
+
+```ts
+import { Agent } from "undici"
+import { undiciDriver } from "misina/driver/undici"
+
+const api = createMisina({
+  driver: undiciDriver({
+    dispatcher: new Agent({
+      connections: 100,
+      keepAliveTimeout: 30_000,
+      pipelining: 1,
+      allowH2: true, // HTTP/2 multiplexing
+    }),
+  }),
+  baseURL: "https://inference.example.com",
+})
+```
+
+`undici` is declared as an optional peer dependency — install it
+yourself (`npm i undici`) only if you use this driver. Misina lazy-
+imports `undici` on first call, so the rest of the package keeps its
+zero-dep footprint. Switch back to the default `fetch` driver any
+time without changing the rest of your code.
 
 ## Subpaths
 
