@@ -273,6 +273,12 @@ export interface MisinaOptions {
    */
   requestIdHeaders?: readonly string[]
   /**
+   * Maximum response body size in bytes. Pre-checked against `Content-Length`
+   * (fast-path), and enforced mid-stream via a byte counter. Throws
+   * `ResponseTooLargeError` when exceeded. Default: `false` (unlimited).
+   */
+  maxResponseSize?: number | false
+  /**
    * Custom JSON parser. Default: JSON.parse. Optional context (request +
    * response) lets advanced parsers route on URL or content-type
    * (matches ky [PR #849](https://github.com/sindresorhus/ky/pull/849)).
@@ -414,6 +420,7 @@ export interface MisinaResolvedOptions {
   redirectMaxCount: number
   redirectAllowDowngrade: boolean
   requestIdHeaders: readonly string[]
+  maxResponseSize: number | false
   throwHttpErrors: boolean
   validateResponse:
     | ((info: {

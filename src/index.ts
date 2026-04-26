@@ -24,10 +24,12 @@ export {
   isHTTPError,
   isMisinaError,
   isNetworkError,
+  isResponseTooLargeError,
   isTimeoutError,
   MisinaError,
   NetworkError,
   type ProblemDetails,
+  ResponseTooLargeError,
   TimeoutError,
 } from "./errors/index.ts"
 

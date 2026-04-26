@@ -8,6 +8,7 @@ import {
   detectSupportedFormats,
   maybeDecompress,
 } from "./_decompress.ts"
+import { enforceMaxResponseSize } from "./_max_size.ts"
 import { progressDownload, progressUpload, supportsRequestStreams } from "./_progress.ts"
 import { followRedirects } from "./_redirect.ts"
 import { readRequestId } from "./_request_id.ts"
@@ -161,6 +162,10 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
       if (options.decompress !== false) {
         const formats = resolveDecompressFormats(options.decompress)
         if (formats.length > 0) response = maybeDecompress(response, formats)
+      }
+
+      if (options.maxResponseSize !== false) {
+        response = enforceMaxResponseSize(response, options.maxResponseSize)
       }
 
       if (options.onDownloadProgress) {
@@ -480,6 +485,7 @@ function resolveOptions(
     redirectStripHeaders: init.redirectStripHeaders ?? defaults.redirectStripHeaders,
     requestIdHeaders: init.requestIdHeaders ??
       defaults.requestIdHeaders ?? ["x-request-id", "request-id", "x-correlation-id"],
+    maxResponseSize: init.maxResponseSize ?? defaults.maxResponseSize ?? false,
     redirectMaxCount: init.redirectMaxCount ?? defaults.redirectMaxCount ?? 5,
     redirectAllowDowngrade: init.redirectAllowDowngrade ?? defaults.redirectAllowDowngrade ?? false,
     throwHttpErrors: init.throwHttpErrors ?? defaults.throwHttpErrors ?? true,
