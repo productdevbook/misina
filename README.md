@@ -52,6 +52,7 @@
   - [misina/transfer](#misinatransfer)
   - [misina/auth/oauth](#misinaauthoauth)
   - [misina/auth/sigv4](#misinaauthsigv4)
+  - [misina/auth/signed](#misinaauthsigned)
   - [misina/otel](#misinaotel)
   - [misina/sentry](#misinasentry)
   - [misina/beacon](#misinabeacon)
@@ -86,8 +87,8 @@
 - **Streaming** — built-in SSE (WHATWG HTML §9.2 compliant) and NDJSON helpers.
 - **HTTP cache** — RFC 9111 compliant: `Cache-Control: no-store` / `max-age`, ETag / Last-Modified revalidation, `Vary` per-variant keying.
 - **Cookie jar** — RFC 6265 compliant: domain match check, Path matching, Secure flag, Max-Age / Expires.
-- **804 tests** across 112 files, exhaustively covering specs and edge cases.
-- **Subpath helpers**: `auth`, `auth/oauth`, `auth/sigv4`, `beacon`, `breaker`, `cache`, `cookie`, `dedupe`, `digest`, `graphql`, `hedge`, `otel`, `paginate`, `poll`, `ratelimit`, `runtime/{bun,cloudflare,deno,next}`, `sentry`, `stream`, `test`, `tracing`, `transfer`.
+- **812 tests** across 113 files, exhaustively covering specs and edge cases.
+- **Subpath helpers**: `auth`, `auth/oauth`, `auth/sigv4`, `auth/signed`, `beacon`, `breaker`, `cache`, `cookie`, `dedupe`, `digest`, `graphql`, `hedge`, `otel`, `paginate`, `poll`, `ratelimit`, `runtime/{bun,cloudflare,deno,next}`, `sentry`, `stream`, `test`, `tracing`, `transfer`.
 - **Idempotency-Key on retry** (RFC draft) — `idempotencyKey: 'auto'` sends a `crypto.randomUUID()` for retried mutations. No competitor ships this.
 - **RFC 9457 problem+json** parsed onto `HTTPError.problem` automatically.
 - **Circuit breaker** (`misina/breaker`) — Polly-shaped state machine, zero deps.
@@ -112,6 +113,7 @@
 - **Resumable transfers** (`misina/transfer`) — `downloadResumable()` is Range-aware with per-chunk retries; `uploadResumable()` follows draft-ietf-httpbis-resumable-upload (POST + PATCH with `Upload-Offset`).
 - **OAuth helpers** (`misina/auth/oauth`) — `withJwtRefresh()` peeks `exp` and refreshes preemptively (single-flight); `createPkcePair()` + `exchangePkceCode()` for PKCE flows.
 - **AWS SigV4 signer** (`misina/auth/sigv4`) — `withSigV4()` adds `Authorization: AWS4-HMAC-SHA256 ...` + `x-amz-date` + `x-amz-content-sha256` to every request via Web Crypto. No `@aws-sdk/*` peer dep.
+- **RFC 9421 HTTP Message Signatures** (`misina/auth/signed`) — `withMessageSignature()` covers Ed25519 / ECDSA P-256 / RSA-PSS / HMAC-SHA256. Cloudflare Verified Bots / OpenAI Operator pattern.
 - **OpenTelemetry spans** (`misina/otel`) — `withOtel()` emits HTTP client spans with semconv attributes; tracer is duck-typed so misina never imports `@opentelemetry/*`.
 - **VCR-lite test helpers** — `record()` + `recordToJSON()` + `replayFromJSON()` round-trip cassettes; `harToCassette()` imports HAR; `coverage()` flags unused routes; `randomStatus` / `randomNetworkError` for chaos; `misinaCallSerializer` redacts volatile headers in Vitest snapshots.
 - **Typed runtime knobs** — `misina/runtime/{bun,deno,cloudflare,next}` augment `MisinaOptions` with runtime-specific fields (`tls`, `client`, `cf`, `next`).
@@ -914,6 +916,43 @@ Streaming uploads: pass `unsignedPayload: true` to use
 `x-amz-content-sha256: UNSIGNED-PAYLOAD` instead of buffering the body
 to hash it. `signRequest(request, opts)` is exported separately for
 one-off signing without wrapping the misina instance.
+
+### misina/auth/signed
+
+```ts
+import { withMessageSignature } from "misina/auth/signed"
+
+// 1. Asymmetric: Web Crypto Ed25519 keypair
+const pair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"])
+const api = withMessageSignature(createMisina({ baseURL }), {
+  keyId: "my-bot",
+  algorithm: "ed25519",
+  privateKey: pair.privateKey,
+  components: ["@method", "@target-uri", "@authority", "content-type", "content-digest"],
+})
+
+// 2. Shared secret: HMAC-SHA256 (raw Uint8Array works)
+const api2 = withMessageSignature(createMisina({ baseURL }), {
+  keyId: "shared",
+  algorithm: "hmac-sha256",
+  privateKey: new TextEncoder().encode(process.env.SHARED_SECRET!),
+  components: ["@method", "@target-uri"],
+})
+```
+
+Implements RFC 9421 HTTP Message Signatures: builds the signature base
+(derived components like `@method`, `@target-uri`, `@authority`,
+`@scheme`, `@path`, `@query`, plus regular header values) per
+RFC 9421 §2, signs via `crypto.subtle`, and emits `Signature-Input`
+
+- `Signature` headers. Supported algorithms: `ed25519`,
+  `ecdsa-p256-sha256`, `rsa-pss-sha512`, `hmac-sha256`. Optional
+  `created`, `expires`, `nonce`, `tag` parameters supported.
+
+Pairs naturally with `misina/digest` — sign over `content-digest` to
+get end-to-end body integrity. The `Signature` and `Signature-Input`
+headers are stripped on cross-origin redirects (RFC 9421 leak
+prevention).
 
 ### misina/otel
 
