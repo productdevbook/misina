@@ -126,15 +126,37 @@ function substitutePathParams(path: string, params: Record<string, string | numb
       if (value == null) {
         throw new Error(`misina: missing path param :${key} for ${path}`)
       }
-      return encodeURIComponent(String(value))
+      return safePathParam(String(value), key, path)
     })
     .replace(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, key: string) => {
       const value = params[key]
       if (value == null) {
         throw new Error(`misina: missing path param {${key}} for ${path}`)
       }
-      return encodeURIComponent(String(value))
+      return safePathParam(String(value), key, path)
     })
+}
+
+function safePathParam(value: string, key: string, path: string): string {
+  // Reject path traversal & separators. encodeURIComponent does encode `/`,
+  // `\`, `\0` — but `..` is literal-legal and would still be normalized by
+  // WHATWG URL into a parent segment. Reject the value early so the URL
+  // composition can't escape its template.
+  if (value === ".." || value === "." || value === "") {
+    throw new Error(
+      `misina: path param ${key} value ${JSON.stringify(value)} rejected (traversal) for ${path}`,
+    )
+  }
+  if (value.includes("/") || value.includes("\\") || value.includes("\0")) {
+    throw new Error(
+      `misina: path param ${key} contains separator (/, \\, NUL) — value ${JSON.stringify(value)} for ${path}`,
+    )
+  }
+  // CR/LF already caught upstream (#52); double-check at this layer.
+  if (value.includes("\r") || value.includes("\n")) {
+    throw new Error(`misina: path param ${key} contains CR/LF for ${path}`)
+  }
+  return encodeURIComponent(value)
 }
 
 /**
