@@ -298,6 +298,18 @@ export interface MisinaOptions {
    * underlying transport. Modern browsers and Workers honor this.
    */
   priority?: "high" | "low" | "auto"
+  /**
+   * Opt-in response decompression. Most modern runtimes auto-decompress
+   * gzip/br at the fetch layer — set this only when:
+   *   - You want zstd (Node 23.8+, Workers, Chromium edge cases)
+   *   - You ship a custom driver that doesn't decompress
+   *
+   * - `true` — capability-test all formats, advertise via Accept-Encoding
+   *   and decompress matching responses
+   * - `string[]` — only these formats (e.g. `["zstd"]`)
+   * - `false` (default) — leave it to the transport
+   */
+  decompress?: boolean | readonly ("gzip" | "deflate" | "deflate-raw" | "br" | "zstd")[]
   /** Standard `fetch` cache mode, passed through to runtime / Next.js. */
   cache?: RequestCache
   /** Standard `fetch` credentials mode. Only sent when explicitly set. */
@@ -370,6 +382,7 @@ export interface MisinaResolvedOptions {
   cache: RequestCache | undefined
   credentials: RequestCredentials | undefined
   priority: "high" | "low" | "auto" | undefined
+  decompress: boolean | readonly ("gzip" | "deflate" | "deflate-raw" | "br" | "zstd")[]
   idempotencyKey: false | "auto" | string | ((request: Request) => string)
   next: { revalidate?: number | false; tags?: string[] } | undefined
   redirect: "manual" | "follow" | "error"

@@ -2,6 +2,12 @@ import { isPayloadMethod, parseResponseBody, serializeBody } from "./_body.ts"
 import { catchable } from "./_catch.ts"
 import { mergeHooks } from "./_hooks.ts"
 import { mergeOptions } from "./_merge.ts"
+import {
+  acceptEncodingFor,
+  type DecompressFormat,
+  detectSupportedFormats,
+  maybeDecompress,
+} from "./_decompress.ts"
 import { progressDownload, progressUpload, supportsRequestStreams } from "./_progress.ts"
 import { followRedirects } from "./_redirect.ts"
 import {
@@ -142,6 +148,11 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
 
         if (await canRetryError(retry, ctx, error, attempt)) continue
         throw await runBeforeError(error, ctx)
+      }
+
+      if (options.decompress !== false) {
+        const formats = resolveDecompressFormats(options.decompress)
+        if (formats.length > 0) response = maybeDecompress(response, formats)
       }
 
       if (options.onDownloadProgress) {
@@ -446,6 +457,7 @@ function resolveOptions(
     cache: init.cache ?? defaults.cache,
     credentials: init.credentials ?? defaults.credentials,
     priority: init.priority ?? defaults.priority,
+    decompress: init.decompress ?? defaults.decompress ?? false,
     idempotencyKey: init.idempotencyKey ?? defaults.idempotencyKey ?? false,
     next: init.next ?? defaults.next,
     redirect: init.redirect ?? defaults.redirect ?? "manual",
@@ -517,6 +529,17 @@ async function buildRequest(
 ): Promise<Request> {
   const headers = { ...options.headers }
   const method = options.method
+
+  // Advertise opt-in decompression formats — but never overwrite a user-set
+  // Accept-Encoding header (they might be intentionally requesting a subset).
+  if (options.decompress !== false) {
+    const formats = resolveDecompressFormats(options.decompress)
+    const accept = acceptEncodingFor(formats)
+    if (accept && !hasHeader(headers, "accept-encoding")) {
+      headers["accept-encoding"] = accept
+    }
+  }
+
   const init: RequestInit & {
     duplex?: "half"
     next?: { revalidate?: number | false; tags?: string[] }
@@ -665,6 +688,36 @@ async function parseResponseBodyTolerant(
       return undefined
     }
   }
+}
+
+// Cache decompression-format detection per option value — DecompressionStream
+// constructor calls aren't free, and the answer is per-runtime invariant.
+const decompressFormatCache = new WeakMap<readonly string[], DecompressFormat[]>()
+let allFormatsResolved: DecompressFormat[] | undefined
+
+function resolveDecompressFormats(
+  option: MisinaResolvedOptions["decompress"],
+): readonly DecompressFormat[] {
+  if (option === false) return []
+  if (option === true) {
+    if (allFormatsResolved == null) {
+      allFormatsResolved = detectSupportedFormats(true)
+    }
+    return allFormatsResolved
+  }
+  const cached = decompressFormatCache.get(option)
+  if (cached) return cached
+  const detected = detectSupportedFormats(option)
+  decompressFormatCache.set(option, detected)
+  return detected
+}
+
+function hasHeader(headers: Record<string, string>, name: string): boolean {
+  const lower = name.toLowerCase()
+  for (const k of Object.keys(headers)) {
+    if (k.toLowerCase() === lower) return true
+  }
+  return false
 }
 
 function abortReasonAsError(signal: AbortSignal): Error {

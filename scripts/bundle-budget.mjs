@@ -10,7 +10,7 @@ const DIST = resolve(process.cwd(), "dist")
 const BUDGETS = [
   // Core surface — must stay tight
   { match: (p) => p === "index.mjs", max: 12_000, label: "core" },
-  { match: (p) => p === "misina.mjs", max: 18_500, label: "core engine" },
+  { match: (p) => p === "misina.mjs", max: 19_500, label: "core engine" },
 
   // Internal helpers
   { match: (p) => /^_[\w-]+\.mjs$/.test(p), max: 6_000, label: "internal" },
