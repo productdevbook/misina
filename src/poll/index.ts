@@ -1,6 +1,6 @@
 import { delayMs } from "../_retry.ts"
 import { composeSignals, timeoutSignal } from "../_signal.ts"
-import type { Misina, MisinaRequestInit } from "../types.ts"
+import type { Misina, MisinaRequestInit, MisinaResponse } from "../types.ts"
 
 export interface PollOptions<T> {
   /**
@@ -71,4 +71,56 @@ export async function poll<T = unknown>(
   }
 
   throw new PollExhaustedError(maxAttempts)
+}
+
+export interface FollowAcceptedOptions<T> extends Omit<PollOptions<T>, "until"> {
+  /**
+   * Trigger the long-running operation. Should return a Response (or
+   * MisinaResponse) with `202 Accepted` and a `Location` header pointing
+   * at the status endpoint to poll.
+   */
+  trigger: () => Promise<MisinaResponse<unknown>>
+  /** Predicate that decides when polling is done. */
+  until: (data: T) => boolean | Promise<boolean>
+}
+
+/**
+ * Common async-job pattern: POST → `202 Accepted` + `Location` → poll
+ * the location URL until `until(data)` is satisfied. Resolves with the
+ * final data.
+ *
+ * ```ts
+ * const result = await followAccepted<JobResult>(misina, {
+ *   trigger: () => misina.post("/jobs", body),
+ *   interval: 2000,
+ *   timeout: 5 * 60_000,
+ *   until: (data) => data.status === "completed",
+ * })
+ * ```
+ */
+export async function followAccepted<T = unknown>(
+  misina: Misina,
+  options: FollowAcceptedOptions<T>,
+): Promise<T> {
+  const initial = await options.trigger()
+  if (initial.status !== 202) {
+    // Already done — short-circuit when the server returns the final
+    // response synchronously (e.g. 200 with the result body).
+    return initial.data as T
+  }
+  const location = initial.headers.location ?? initial.headers.Location
+  if (!location) {
+    throw new Error("misina: followAccepted got 202 without a Location header")
+  }
+  // Resolve relative Location against the response URL (server canonical
+  // base) for the poll target.
+  const pollUrl = new URL(location, initial.url || undefined).toString()
+  return poll<T>(misina, pollUrl, {
+    until: options.until,
+    interval: options.interval,
+    timeout: options.timeout,
+    maxAttempts: options.maxAttempts,
+    signal: options.signal,
+    init: options.init,
+  })
 }
