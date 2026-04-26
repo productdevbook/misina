@@ -52,7 +52,10 @@
   - [misina/transfer](#misinatransfer)
   - [misina/auth/oauth](#misinaauthoauth)
   - [misina/auth/sigv4](#misinaauthsigv4)
-  - [misina/sentry / beacon / graphql / hedge](#misinasentry--beacon--graphql--hedge)
+  - [misina/sentry](#misinasentry)
+  - [misina/beacon](#misinabeacon)
+  - [misina/graphql](#misinagraphql)
+  - [misina/hedge](#misinahedge)
 - [Idempotency-Key](#idempotency-key)
 - [RFC 9457 problem+json](#rfc-9457-problemjson)
 - [Fetch Priority](#fetch-priority)
@@ -910,17 +913,90 @@ Streaming uploads: pass `unsignedPayload: true` to use
 to hash it. `signRequest(request, opts)` is exported separately for
 one-off signing without wrapping the misina instance.
 
-### misina/sentry / misina/beacon / misina/graphql / misina/hedge
+### misina/sentry
 
-`withSentry(misina, { Sentry })` captures HTTPError + NetworkError +
-TimeoutError with the originating request as Sentry context (no peer
-dep — pass any `{ captureException, addBreadcrumb? }` shape).
-`fireAndForget(misina, url, body)` is a fetchLater → keepalive →
-sendBeacon three-tier helper for telemetry on page unload.
-`withGraphql(misina, { endpoint })` adds `query`, `mutate`, and APQ
-(automatic persisted queries via SHA-256). `hedge(misina, path,
-{ endpoints, delayMs })` races a request across multiple endpoints
-and aborts the losers when the first one returns.
+```ts
+import * as Sentry from "@sentry/browser"
+import { withSentry } from "misina/sentry"
+
+const api = withSentry(createMisina({ baseURL }), {
+  Sentry,
+  captureLevel: "error",          // 'all' | 'error' (skip 4xx, default) | '5xx'
+  redactHeaders: ["authorization", "cookie", "x-api-key"],
+  successBreadcrumb: true,        // add a breadcrumb on every 2xx
+})
+```
+
+Captures `HTTPError`, `NetworkError`, and `TimeoutError` to Sentry with
+the originating request as context (`request.method`, `request.url`,
+redacted headers, response status, requestId tag). No peer dependency —
+pass anything that satisfies the minimal `{ captureException,
+addBreadcrumb? }` shape (`@sentry/browser`, `@sentry/node`,
+`@sentry/core`, or your own wrapper).
+
+### misina/beacon
+
+```ts
+import { beacon } from "misina/beacon"
+
+window.addEventListener("pagehide", () => {
+  beacon("/telemetry", { event: "pagehide", t: Date.now() })
+})
+```
+
+Fire-and-forget telemetry for page-unload moments. Tries `fetchLater`
+first (Pending Beacon API, Chromium), falls back to `fetch` with
+`keepalive: true`, and finally to `navigator.sendBeacon`. Returns
+`{ ok: true, via: 'fetchLater' | 'fetch-keepalive' | 'sendBeacon' }`
+on success or `{ ok: false, reason }` so callers can record which path
+actually ran.
+
+### misina/graphql
+
+```ts
+import { withGraphql } from "misina/graphql"
+
+const gql = withGraphql(createMisina({ baseURL }), {
+  endpoint: "/graphql",
+  persistedQueries: true, // Apollo APQ (SHA-256, GET fallback for short queries)
+})
+
+const data = await gql.query<{ user: { id: string } }>(
+  /* GraphQL */ `query U($id: ID!) { user(id: $id) { id } }`,
+  { id: "42" },
+)
+```
+
+`gql.query` and `gql.mutate` send the standard `{ query, variables,
+operationName }` envelope. With `persistedQueries: true` the client
+sends only the hash on the first attempt and falls back to attaching
+the full query when the server replies `PersistedQueryNotFound`
+(Apollo APQ protocol). GraphQL `errors[]` collapse into a typed
+`GraphqlAggregateError` so the success path always sees `data`.
+
+### misina/hedge
+
+```ts
+import { hedge } from "misina/hedge"
+
+// Race three replicas; the first to return wins, the others are aborted.
+const data = await hedge<User>(misina, "/users/42", {
+  endpoints: [
+    "https://api-eu.example.com",
+    "https://api-us.example.com",
+    "https://api-ap.example.com",
+  ],
+  delayMs: 75,    // start replicas 1+ after this delay (Google "tail at scale")
+  max: 3,         // cap simultaneous in-flight attempts
+})
+```
+
+Implements the Dean & Barroso CACM 2013 hedged-request pattern: the
+helper dispatches against `endpoints[0]` immediately and stages the
+remaining endpoints `delayMs` apart. The first response settles the
+promise and aborts every loser via their own `AbortController`. Loser
+errors surface as `HedgeLoserError` and are filtered out of the final
+error report.
 
 ## Server-Timing
 
