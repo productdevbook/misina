@@ -11,23 +11,29 @@
  *
  * @example
  * ```ts
- * import { withTracing } from 'misina/tracing'
+ * import { createMisina } from 'misina'
+ * import { tracing } from 'misina/tracing'
  *
- * const api = withTracing(createMisina({ baseURL }))
+ * const api = createMisina({ baseURL, use: [tracing()] })
  * await api.get('/users/42') // request gets a fresh traceparent + matching tracestate
  *
  * // With OpenTelemetry:
  * import { trace } from '@opentelemetry/api'
- * const api2 = withTracing(misina, {
- *   getCurrentSpan: () => {
- *     const span = trace.getActiveSpan()
- *     return span ? { traceId: span.spanContext().traceId, parentId: span.spanContext().spanId } : null
- *   },
+ * const api2 = createMisina({
+ *   baseURL,
+ *   use: [
+ *     tracing({
+ *       getCurrentSpan: () => {
+ *         const span = trace.getActiveSpan()
+ *         return span ? { traceId: span.spanContext().traceId, parentId: span.spanContext().spanId } : null
+ *       },
+ *     }),
+ *   ],
  * })
  * ```
  */
 
-import type { Misina } from "../types.ts"
+import type { MisinaPlugin } from "../types.ts"
 
 export interface TracingOptions {
   /**
@@ -81,9 +87,10 @@ function buildBaggage(entries: Record<string, string>): string | null {
   return parts.length === 0 ? null : parts.join(",")
 }
 
-export function withTracing(misina: Misina, options: TracingOptions = {}): Misina {
+export function tracing(options: TracingOptions = {}): MisinaPlugin {
   const flagsDefault = options.flags ?? 0x01
-  return misina.extend({
+  return {
+    name: "tracing",
     hooks: {
       beforeRequest: (ctx) => {
         // Don't overwrite a caller-supplied traceparent — they may have
@@ -108,5 +115,5 @@ export function withTracing(misina: Misina, options: TracingOptions = {}): Misin
         return new Request(ctx.request, { headers })
       },
     },
-  })
+  }
 }

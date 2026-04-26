@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { createMisina } from "../src/index.ts"
-import { GraphqlAggregateError, withGraphql } from "../src/graphql/index.ts"
+import { createGraphqlClient, GraphqlAggregateError } from "../src/graphql/index.ts"
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -8,7 +8,7 @@ function jsonResponse(body: unknown): Response {
   })
 }
 
-describe("withGraphql — basic POST query/mutate", () => {
+describe("createGraphqlClient — basic POST query/mutate", () => {
   it("query() sends the canonical envelope and returns data", async () => {
     let observedBody: string | null = null
     const driver = {
@@ -19,7 +19,7 @@ describe("withGraphql — basic POST query/mutate", () => {
       },
     }
     const m = createMisina({ driver, retry: 0, baseURL: "https://api.test" })
-    const gql = withGraphql(m)
+    const gql = createGraphqlClient(m)
     const data = await gql.query<{ user: { id: string; name: string } }>(
       "query Get($id: ID!){user(id:$id){id name}}",
       { id: "42" },
@@ -42,7 +42,7 @@ describe("withGraphql — basic POST query/mutate", () => {
       },
     }
     const m = createMisina({ driver, retry: 0, baseURL: "https://api.test" })
-    const gql = withGraphql(m, { getFallbackBelow: 99_999 }) // very high
+    const gql = createGraphqlClient(m, { getFallbackBelow: 99_999 }) // very high
     await gql.mutate("mutation Foo{foo}")
     expect(seen).toEqual(["POST"])
   })
@@ -57,7 +57,7 @@ describe("withGraphql — basic POST query/mutate", () => {
         }),
     }
     const m = createMisina({ driver, retry: 0, baseURL: "https://api.test" })
-    const gql = withGraphql(m)
+    const gql = createGraphqlClient(m)
     try {
       await gql.query("{user{id}}")
       expect.fail("should throw")
@@ -69,7 +69,7 @@ describe("withGraphql — basic POST query/mutate", () => {
   })
 })
 
-describe("withGraphql — APQ", () => {
+describe("createGraphqlClient — APQ", () => {
   it("first attempt sends hash only; PersistedQueryNotFound triggers full retry", async () => {
     const calls: Array<{ envelope: { query?: string; extensions?: unknown } }> = []
     let i = 0
@@ -88,7 +88,7 @@ describe("withGraphql — APQ", () => {
       },
     }
     const m = createMisina({ driver, retry: 0, baseURL: "https://api.test" })
-    const gql = withGraphql(m, { persistedQueries: true })
+    const gql = createGraphqlClient(m, { persistedQueries: true })
     const data = await gql.query<{ user: { id: string } }>("{user{id}}")
     expect(data.user.id).toBe("1")
     expect(calls).toHaveLength(2)
@@ -117,14 +117,14 @@ describe("withGraphql — APQ", () => {
       },
     }
     const m = createMisina({ driver, retry: 0, baseURL: "https://api.test" })
-    const gql = withGraphql(m, { persistedQueries: true })
+    const gql = createGraphqlClient(m, { persistedQueries: true })
     const data = await gql.query<{ ok: boolean }>("{ok}")
     expect(data.ok).toBe(true)
     expect(i).toBe(2)
   })
 })
 
-describe("withGraphql — GET fallback", () => {
+describe("createGraphqlClient — GET fallback", () => {
   it("query under threshold goes via GET", async () => {
     const seen: { method: string; url: string }[] = []
     const driver = {
@@ -135,7 +135,7 @@ describe("withGraphql — GET fallback", () => {
       },
     }
     const m = createMisina({ driver, retry: 0, baseURL: "https://api.test" })
-    const gql = withGraphql(m, { getFallbackBelow: 1500 })
+    const gql = createGraphqlClient(m, { getFallbackBelow: 1500 })
     await gql.query("{ok}")
     expect(seen[0]?.method).toBe("GET")
     expect(seen[0]?.url).toContain("query=")
@@ -151,7 +151,7 @@ describe("withGraphql — GET fallback", () => {
       },
     }
     const m = createMisina({ driver, retry: 0, baseURL: "https://api.test" })
-    const gql = withGraphql(m, { getFallbackBelow: 50 })
+    const gql = createGraphqlClient(m, { getFallbackBelow: 50 })
     await gql.query(`query A{${"a".repeat(100)}}`)
     expect(seen).toEqual(["POST"])
   })

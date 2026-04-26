@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { createMisina } from "../src/index.ts"
-import { MemoryCookieJar, withCookieJar } from "../src/cookie/index.ts"
+import { cookieJar, MemoryCookieJar } from "../src/cookie/index.ts"
 
-describe("withCookieJar — integration with misina lifecycle", () => {
+describe("cookieJar — integration with misina lifecycle", () => {
   it("captures multiple Set-Cookie headers via getSetCookie", async () => {
     const driver = {
       name: "multi-set-cookie",
@@ -22,7 +22,7 @@ describe("withCookieJar — integration with misina lifecycle", () => {
     }
 
     const jar = new MemoryCookieJar()
-    const m = withCookieJar(createMisina({ driver, retry: 0 }), jar)
+    const m = createMisina({ driver, retry: 0, use: [cookieJar(jar)] })
 
     await m.get("https://api.test/login")
     const res = await m.get<{ cookie: string }>("https://api.test/profile")
@@ -50,7 +50,7 @@ describe("withCookieJar — integration with misina lifecycle", () => {
     }
 
     const jar = new MemoryCookieJar()
-    const m = withCookieJar(createMisina({ driver, retry: 0 }), jar)
+    const m = createMisina({ driver, retry: 0, use: [cookieJar(jar)] })
 
     await m.get("https://api.test/set")
     const res = await m.get<{ cookie: string }>("https://api.test/check")
@@ -74,7 +74,7 @@ describe("withCookieJar — integration with misina lifecycle", () => {
     }
 
     const jar = new MemoryCookieJar()
-    const m = withCookieJar(createMisina({ driver, retry: 0 }), jar)
+    const m = createMisina({ driver, retry: 0, use: [cookieJar(jar)] })
 
     await m.get("https://api.test/login")
     const same = await m.get<{ cookie: string }>("https://api.test/x")
@@ -100,7 +100,7 @@ describe("withCookieJar — integration with misina lifecycle", () => {
     }
 
     const jar = new MemoryCookieJar()
-    const m = withCookieJar(createMisina({ driver, retry: 0 }), jar)
+    const m = createMisina({ driver, retry: 0, use: [cookieJar(jar)] })
 
     await m.get("https://api.test/login")
     await m.get("https://api.test/x", { headers: { cookie: "from-user=B" } })
@@ -128,7 +128,7 @@ describe("withCookieJar — integration with misina lifecycle", () => {
     }
 
     const jar = new MemoryCookieJar()
-    const m = withCookieJar(createMisina({ driver, retry: 0 }), jar)
+    const m = createMisina({ driver, retry: 0, use: [cookieJar(jar)] })
 
     await m.get("https://api.test/api/login")
     await m.get("https://api.test/other/page")

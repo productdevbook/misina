@@ -1,5 +1,10 @@
 import { MisinaError } from "../errors/base.ts"
-import type { Misina, MisinaContext, MisinaRequestInit, MisinaResponsePromise } from "../types.ts"
+import type {
+  MisinaContext,
+  MisinaPlugin,
+  MisinaRequestInit,
+  MisinaResponsePromise,
+} from "../types.ts"
 import { catchable } from "../_catch.ts"
 
 /**
@@ -71,19 +76,17 @@ function defaultIsFailure({ error }: BreakerCallResult): boolean {
 }
 
 /**
- * Wrap a Misina with a circuit breaker.
+ * Plugin that fronts a Misina with a circuit breaker. Adds a `.breaker`
+ * handle on the returned client for inspection and manual control.
  *
  * ```ts
- * const api = withCircuitBreaker(misina, { failureThreshold: 3 })
+ * const api = createMisina({ use: [breaker({ failureThreshold: 3 })] })
+ * api.breaker.state() // "closed" | "open" | "half-open"
  * ```
- *
- * Returns the wrapped misina; the breaker handle for inspection/control is
- * available via the `.breaker` extension on the returned object.
  */
-export function withCircuitBreaker(
-  misina: Misina,
+export function breaker(
   opts: CircuitBreakerOptions = {},
-): Misina & { breaker: BreakerHandle } {
+): MisinaPlugin<{ breaker: BreakerHandle }> {
   const failureThreshold = opts.failureThreshold ?? DEFAULT_OPTS.failureThreshold
   const windowMs = opts.windowMs ?? DEFAULT_OPTS.windowMs
   const halfOpenAfter = opts.halfOpenAfter ?? DEFAULT_OPTS.halfOpenAfter
@@ -174,30 +177,33 @@ export function withCircuitBreaker(
     return catchable(promise) as MisinaResponsePromise<T>
   }
 
-  const breaker: BreakerHandle = {
+  const handle: BreakerHandle = {
     state: () => state,
     trip: () => transitionToOpen(Date.now()),
     reset: () => recordSuccess(),
   }
 
   return {
-    ...misina,
-    breaker,
-    request: <T = unknown>(input: string, init?: MisinaRequestInit) =>
-      wrap<T>(() => misina.request<T>(input, init)),
-    get: <T = unknown>(url: string, init?: MisinaRequestInit) =>
-      wrap<T>(() => misina.get<T>(url, init)),
-    head: <T = unknown>(url: string, init?: MisinaRequestInit) =>
-      wrap<T>(() => misina.head<T>(url, init)),
-    options: <T = unknown>(url: string, init?: MisinaRequestInit) =>
-      wrap<T>(() => misina.options<T>(url, init)),
-    delete: <T = unknown>(url: string, init?: MisinaRequestInit) =>
-      wrap<T>(() => misina.delete<T>(url, init)),
-    post: <T = unknown>(url: string, body?: unknown, init?: MisinaRequestInit) =>
-      wrap<T>(() => misina.post<T>(url, body, init)),
-    put: <T = unknown>(url: string, body?: unknown, init?: MisinaRequestInit) =>
-      wrap<T>(() => misina.put<T>(url, body, init)),
-    patch: <T = unknown>(url: string, body?: unknown, init?: MisinaRequestInit) =>
-      wrap<T>(() => misina.patch<T>(url, body, init)),
+    name: "breaker",
+    extend: (misina) => ({
+      ...misina,
+      breaker: handle,
+      request: <T = unknown>(input: string, init?: MisinaRequestInit) =>
+        wrap<T>(() => misina.request<T>(input, init)),
+      get: <T = unknown>(url: string, init?: MisinaRequestInit) =>
+        wrap<T>(() => misina.get<T>(url, init)),
+      head: <T = unknown>(url: string, init?: MisinaRequestInit) =>
+        wrap<T>(() => misina.head<T>(url, init)),
+      options: <T = unknown>(url: string, init?: MisinaRequestInit) =>
+        wrap<T>(() => misina.options<T>(url, init)),
+      delete: <T = unknown>(url: string, init?: MisinaRequestInit) =>
+        wrap<T>(() => misina.delete<T>(url, init)),
+      post: <T = unknown>(url: string, body?: unknown, init?: MisinaRequestInit) =>
+        wrap<T>(() => misina.post<T>(url, body, init)),
+      put: <T = unknown>(url: string, body?: unknown, init?: MisinaRequestInit) =>
+        wrap<T>(() => misina.put<T>(url, body, init)),
+      patch: <T = unknown>(url: string, body?: unknown, init?: MisinaRequestInit) =>
+        wrap<T>(() => misina.patch<T>(url, body, init)),
+    }),
   }
 }

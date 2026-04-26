@@ -1,8 +1,8 @@
 /**
  * OAuth 2.1 / PKCE helpers and JWT-aware refresh.
  *
- * `withJwtRefresh(misina, opts)` peeks the JWT exp claim on every request
- * and proactively refreshes the token *before* a 401 round-trip. Concurrent
+ * `jwtRefresh(opts)` peeks the JWT exp claim on every request and
+ * proactively refreshes the token *before* a 401 round-trip. Concurrent
  * requests with an expired token collapse onto a single refresh call.
  *
  * `createPkcePair()` generates a code verifier + S256 challenge per RFC
@@ -10,10 +10,10 @@
  * exchange (RFC 6749 §4.1.3) with the verifier attached.
  */
 
-import type { Misina, MisinaContext } from "../types.ts"
+import type { Misina, MisinaContext, MisinaPlugin } from "../types.ts"
 
 /* ----------------------------------------------------------------------- */
-/*                            withJwtRefresh                                */
+/*                              jwtRefresh                                  */
 /* ----------------------------------------------------------------------- */
 
 export interface JwtRefreshOptions {
@@ -47,7 +47,7 @@ export interface JwtRefreshOptions {
  * Refresh runs in `beforeRequest`, so the *current* request goes out with
  * the new token — no extra 401 round-trip.
  */
-export function withJwtRefresh(misina: Misina, opts: JwtRefreshOptions): Misina {
+export function jwtRefresh(opts: JwtRefreshOptions): MisinaPlugin {
   const window = opts.expiryWindowMs ?? 30_000
   const rejectIfUnchanged = opts.rejectIfUnchanged ?? true
   let inflight: Promise<string> | undefined
@@ -57,7 +57,7 @@ export function withJwtRefresh(misina: Misina, opts: JwtRefreshOptions): Misina 
       inflight = Promise.resolve(opts.refresh())
         .then((next) => {
           if (rejectIfUnchanged && current && next === current) {
-            throw new Error("withJwtRefresh: refresh returned the same token")
+            throw new Error("jwtRefresh: refresh returned the same token")
           }
           return next
         })
@@ -70,7 +70,8 @@ export function withJwtRefresh(misina: Misina, opts: JwtRefreshOptions): Misina 
     return inflight
   }
 
-  return misina.extend({
+  return {
+    name: "jwtRefresh",
     hooks: {
       beforeRequest: async (ctx) => {
         if (opts.shouldRefresh && !opts.shouldRefresh(ctx)) return
@@ -87,7 +88,7 @@ export function withJwtRefresh(misina: Misina, opts: JwtRefreshOptions): Misina 
         return new Request(ctx.request, { headers })
       },
     },
-  })
+  }
 }
 
 /**

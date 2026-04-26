@@ -8,23 +8,25 @@
  * fake fits, your own wrapper fits). Lets users opt into spans without
  * misina ever importing `@opentelemetry/*`.
  *
- * Complements `misina/tracing`: `withTracing` is the W3C trace context
- * *propagator* (sets `traceparent` / `baggage`); `withOtel` is the
+ * Complements `misina/tracing`: `tracing()` is the W3C trace context
+ * *propagator* (sets `traceparent` / `baggage`); `otel()` is the
  * *span emitter* (creates and ends spans, attaches semconv attributes,
  * records exceptions). Use one, the other, or both.
  *
  * @example
  * ```ts
  * import { trace } from "@opentelemetry/api"
- * import { withOtel } from "misina/otel"
+ * import { createMisina } from "misina"
+ * import { otel } from "misina/otel"
  *
- * const api = withOtel(createMisina({ baseURL }), {
- *   tracer: trace.getTracer("my-service"),
+ * const api = createMisina({
+ *   baseURL,
+ *   use: [otel({ tracer: trace.getTracer("my-service") })],
  * })
  * ```
  */
 
-import type { Misina } from "../types.ts"
+import type { MisinaPlugin } from "../types.ts"
 
 /** Minimal SpanContext shape used to format `traceparent`. */
 export interface OtelSpanContext {
@@ -74,17 +76,18 @@ const SPAN_KIND_CLIENT = 2
 const STATUS_ERROR = 2
 
 /**
- * Wrap a Misina with OpenTelemetry HTTP client spans. One span per
- * request lifetime: started in `beforeRequest`, ended in `onComplete`.
- * The span is associated with the live `Request` via a WeakMap so we
- * survive `extend()` chains and per-request hook copies.
+ * Plugin that emits OpenTelemetry HTTP client spans. One span per request
+ * lifetime: started in `beforeRequest`, ended in `onComplete`. The span is
+ * associated with the live `Request` via a WeakMap so we survive
+ * `extend()` chains and per-request hook copies.
  */
-export function withOtel(misina: Misina, options: OtelOptions): Misina {
+export function otel(options: OtelOptions): MisinaPlugin {
   const inject = options.injectTraceparent ?? true
   const spans = new WeakMap<Request, OtelSpan>()
   const nameOf = options.spanName ?? ((req) => `HTTP ${req.method}`)
 
-  return misina.extend({
+  return {
+    name: "otel",
     hooks: {
       beforeRequest: (ctx) => {
         const url = new URL(ctx.request.url)
@@ -131,7 +134,7 @@ export function withOtel(misina: Misina, options: OtelOptions): Misina {
         span.end()
       },
     },
-  })
+  }
 }
 
 function formatTraceparent(sc: OtelSpanContext): string {

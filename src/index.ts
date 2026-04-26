@@ -43,6 +43,7 @@ export {
 
 export type {
   AfterResponseHook,
+  ApplyPlugins,
   ArrayFormat,
   BeforeErrorHook,
   BeforeRedirectHook,
@@ -60,6 +61,7 @@ export type {
   MisinaHooks,
   MisinaMeta,
   MisinaOptions,
+  MisinaPlugin,
   MisinaState,
   MisinaRequestInit,
   MisinaResolvedOptions,

@@ -82,7 +82,10 @@ function copyInto(out: Record<string, string>, source: HeadersInput): void {
   }
 }
 
-function mergeHookConfigs(a: MisinaHooks | undefined, b: MisinaHooks | undefined): MisinaHooks {
+export function mergeHookConfigs(
+  a: MisinaHooks | undefined,
+  b: MisinaHooks | undefined,
+): MisinaHooks {
   if (!a) return b ?? {}
   if (!b) return a
   return {

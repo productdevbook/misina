@@ -2,7 +2,7 @@ import { isPayloadMethod, parseResponseBody, serializeBody } from "./_body.ts"
 import { catchable } from "./_catch.ts"
 import { compressBody, resolveCompressFormat } from "./_compress.ts"
 import { mergeHooks } from "./_hooks.ts"
-import { mergeOptions } from "./_merge.ts"
+import { mergeHookConfigs, mergeOptions } from "./_merge.ts"
 import {
   acceptEncodingFor,
   type DecompressFormat,
@@ -32,11 +32,14 @@ import {
   TimeoutError,
 } from "./errors/index.ts"
 import type {
+  ApplyPlugins,
   HttpMethod,
   Misina,
   MisinaContext,
   MisinaDriver,
+  MisinaHooks,
   MisinaOptions,
+  MisinaPlugin,
   MisinaRequestInit,
   MisinaResolvedOptions,
   MisinaResponse,
@@ -59,7 +62,15 @@ const DEFAULT_TIMEOUT = 10_000
 // to RequestInit and onto MisinaResolvedOptions.
 const RUNTIME_KEYS = ["cf", "tls", "unix", "proxy", "verbose", "client"] as const
 
-export function createMisina(defaults: MisinaOptions = {}): Misina {
+export function createMisina<const TPlugins extends readonly MisinaPlugin<any>[] = []>(
+  options: MisinaOptions & { use?: TPlugins } = {} as MisinaOptions & { use?: TPlugins },
+): ApplyPlugins<TPlugins> {
+  const plugins = (options.use ?? []) as readonly MisinaPlugin<any>[]
+  warnDuplicatePluginNames(plugins)
+  // Plugin hooks are concatenated *before* the user's hooks so a
+  // user-supplied hook always runs after every plugin contribution and gets
+  // the final word on the request/response.
+  const defaults: MisinaOptions = applyPluginHooks(options, plugins)
   const driver: MisinaDriver =
     defaults.driver ?? fetchDriverFactory({ fetch: defaults.fetch } as never)
   // Per-instance shared state. Same reference returned to every call so
@@ -453,7 +464,53 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
     safe,
   }
 
-  return misina
+  // Apply plugin `extend` wrappers in left-to-right order. The first plugin
+  // is innermost; the last is outermost. A wrapping plugin (e.g. circuit
+  // breaker) placed after a hook-only plugin observes that hook's effects
+  // on every call it admits. Returned typed surfaces (e.g. { breaker })
+  // accumulate via `ApplyPlugins<TPlugins>`.
+  let result: Misina = misina
+  for (const plugin of plugins) {
+    if (plugin.extend) result = plugin.extend(result)
+  }
+  return result as ApplyPlugins<TPlugins>
+}
+
+/**
+ * Concatenate every plugin's hooks onto `options.hooks` in plugin order.
+ * Plugin hooks land first so any user-supplied `options.hooks` runs last
+ * (final-word semantics).
+ */
+function applyPluginHooks(
+  options: MisinaOptions & { use?: unknown },
+  plugins: readonly MisinaPlugin<any>[],
+): MisinaOptions {
+  // Strip `use` so `extend()` (which deep-merges defaults with child overrides)
+  // can't re-feed plugins into the loop on the child instance — that would
+  // re-run every wrapping plugin and recurse infinitely.
+  const { use: _use, ...rest } = options
+  void _use
+  if (plugins.length === 0) return rest
+  let merged: MisinaHooks | undefined
+  for (const plugin of plugins) {
+    if (plugin.hooks) merged = mergeHookConfigs(merged, plugin.hooks)
+  }
+  if (rest.hooks) merged = mergeHookConfigs(merged, rest.hooks)
+  return { ...rest, hooks: merged }
+}
+
+function warnDuplicatePluginNames(plugins: readonly MisinaPlugin<any>[]): void {
+  if (plugins.length < 2) return
+  const seen = new Set<string>()
+  for (const plugin of plugins) {
+    if (seen.has(plugin.name)) {
+      // Duplicates are usually a copy-paste error or an accidental double-
+      // registration. We don't throw — both plugins still get applied —
+      // but we surface the problem so users notice in dev.
+      console.warn(`misina: duplicate plugin name "${plugin.name}" in createMisina({ use: [...] })`)
+    }
+    seen.add(plugin.name)
+  }
 }
 
 function resolveOptions(

@@ -1,5 +1,5 @@
 import { parseSfList, type SfBareItem } from "../_sf.ts"
-import type { HttpMethod, Misina, MisinaContext } from "../types.ts"
+import type { HttpMethod, MisinaContext, MisinaPlugin } from "../types.ts"
 
 export interface CacheEntry {
   response: Response
@@ -241,7 +241,7 @@ const DEFAULT_METHODS: HttpMethod[] = ["GET"]
  * `Cache-Control: no-store` (skip cache), `Cache-Control: max-age=N`
  * (override TTL), and ETag / Last-Modified for revalidation.
  */
-export function withCache(misina: Misina, opts: CacheOptions = {}): Misina {
+export function cache(opts: CacheOptions = {}): MisinaPlugin {
   const store = opts.store ?? memoryStore()
   const ttl = opts.ttl ?? 60_000
   const methods = opts.methods ?? DEFAULT_METHODS
@@ -249,7 +249,8 @@ export function withCache(misina: Misina, opts: CacheOptions = {}): Misina {
   const revalidate = opts.revalidate !== false
   const honorCacheControl = opts.honorCacheControl !== false
 
-  return misina.extend({
+  return {
+    name: "cache",
     hooks: {
       beforeRequest: async (ctx) => {
         if (!methods.includes(ctx.options.method)) return
@@ -365,7 +366,7 @@ export function withCache(misina: Misina, opts: CacheOptions = {}): Misina {
         }
       },
     },
-  })
+  }
 }
 
 function variantKeyFor(

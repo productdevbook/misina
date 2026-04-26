@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { createMisina } from "../src/index.ts"
-import { withCache, memoryStore } from "../src/cache/index.ts"
+import { cache, memoryStore } from "../src/cache/index.ts"
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -9,7 +9,7 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   })
 }
 
-describe("withCache — RFC 9111 compliance", () => {
+describe("cache — RFC 9111 compliance", () => {
   it("Cache-Control: no-store is honored (response not stored)", async () => {
     let calls = 0
     const driver = {
@@ -26,7 +26,7 @@ describe("withCache — RFC 9111 compliance", () => {
     }
 
     const store = memoryStore()
-    const m = withCache(createMisina({ driver, retry: 0 }), { store, ttl: 60_000 })
+    const m = createMisina({ driver, retry: 0, use: [cache({ store, ttl: 60_000 })] })
 
     await m.get("https://api.test/")
     await m.get("https://api.test/")
@@ -55,7 +55,7 @@ describe("withCache — RFC 9111 compliance", () => {
     }
 
     const store = memoryStore()
-    const m = withCache(createMisina({ driver, retry: 0 }), { store, ttl: 60_000 })
+    const m = createMisina({ driver, retry: 0, use: [cache({ store, ttl: 60_000 })] })
 
     await m.get("https://api.test/")
     expect(calls).toBe(1)
@@ -86,7 +86,7 @@ describe("withCache — RFC 9111 compliance", () => {
     }
 
     const store = memoryStore()
-    const m = withCache(createMisina({ driver, retry: 0 }), { store, ttl: 60_000 })
+    const m = createMisina({ driver, retry: 0, use: [cache({ store, ttl: 60_000 })] })
 
     const en = await m.get<{ lang: string }>("https://api.test/", {
       headers: { "accept-language": "en" },
@@ -127,7 +127,7 @@ describe("withCache — RFC 9111 compliance", () => {
     }
 
     const store = memoryStore()
-    const m = withCache(createMisina({ driver, retry: 0 }), { store, ttl: 60_000 })
+    const m = createMisina({ driver, retry: 0, use: [cache({ store, ttl: 60_000 })] })
 
     await m.get("https://api.test/")
     await m.get("https://api.test/")

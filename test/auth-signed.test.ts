@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { createMisina } from "../src/index.ts"
-import { signRequest, withMessageSignature } from "../src/auth/signed.ts"
+import { messageSignature, signRequest } from "../src/auth/signed.ts"
 
 function parseSignatureInput(header: string): {
   label: string
@@ -38,7 +38,7 @@ function decodeBase64(b64: string): Uint8Array {
   return out
 }
 
-describe("withMessageSignature — HMAC-SHA256 (shared secret)", () => {
+describe("messageSignature — HMAC-SHA256 (shared secret)", () => {
   it("signs a request with hmac-sha256 and verifies via crypto.subtle", async () => {
     const secret = new TextEncoder().encode("super-secret")
     let captured: Headers | undefined
@@ -49,12 +49,18 @@ describe("withMessageSignature — HMAC-SHA256 (shared secret)", () => {
         return new Response("ok", { status: 200 })
       },
     }
-    const m = withMessageSignature(createMisina({ driver, retry: 0 }), {
-      keyId: "test-key",
-      algorithm: "hmac-sha256",
-      privateKey: secret,
-      components: ["@method", "@target-uri"],
-      created: 1_700_000_000,
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [
+        messageSignature({
+          keyId: "test-key",
+          algorithm: "hmac-sha256",
+          privateKey: secret,
+          components: ["@method", "@target-uri"],
+          created: 1_700_000_000,
+        }),
+      ],
     })
     await m.get("https://example.com/foo")
     expect(captured?.get("signature-input")).toBeTruthy()
@@ -103,15 +109,21 @@ describe("withMessageSignature — HMAC-SHA256 (shared secret)", () => {
         return new Response("ok", { status: 200 })
       },
     }
-    const m = withMessageSignature(createMisina({ driver, retry: 0 }), {
-      keyId: "k",
-      algorithm: "hmac-sha256",
-      privateKey: secret,
-      components: ["@method"],
-      created: 1_700_000_000,
-      expires: 1_700_000_900,
-      nonce: "abc123",
-      tag: "audit",
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [
+        messageSignature({
+          keyId: "k",
+          algorithm: "hmac-sha256",
+          privateKey: secret,
+          components: ["@method"],
+          created: 1_700_000_000,
+          expires: 1_700_000_900,
+          nonce: "abc123",
+          tag: "audit",
+        }),
+      ],
     })
     await m.get("https://example.com/")
     const input = parseSignatureInput(captured!.get("signature-input")!)
@@ -130,11 +142,17 @@ describe("withMessageSignature — HMAC-SHA256 (shared secret)", () => {
         return new Response("ok", { status: 200 })
       },
     }
-    const m = withMessageSignature(createMisina({ driver, retry: 0 }), {
-      algorithm: "hmac-sha256",
-      privateKey: secret,
-      components: ["@method"],
-      label: "audit-sig",
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [
+        messageSignature({
+          algorithm: "hmac-sha256",
+          privateKey: secret,
+          components: ["@method"],
+          label: "audit-sig",
+        }),
+      ],
     })
     await m.get("https://example.com/")
     expect(captured?.get("signature-input")).toMatch(/^audit-sig=\(/)
@@ -142,7 +160,7 @@ describe("withMessageSignature — HMAC-SHA256 (shared secret)", () => {
   })
 })
 
-describe("withMessageSignature — Ed25519 (Web Crypto, asymmetric)", () => {
+describe("messageSignature — Ed25519 (Web Crypto, asymmetric)", () => {
   it("signs and verifies with a generated Ed25519 keypair", async () => {
     let pair: CryptoKeyPair
     try {
@@ -164,12 +182,18 @@ describe("withMessageSignature — Ed25519 (Web Crypto, asymmetric)", () => {
         return new Response("ok", { status: 200 })
       },
     }
-    const m = withMessageSignature(createMisina({ driver, retry: 0 }), {
-      keyId: "ed1",
-      algorithm: "ed25519",
-      privateKey: pair.privateKey,
-      components: ["@method", "@target-uri"],
-      created: 1_700_000_000,
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [
+        messageSignature({
+          keyId: "ed1",
+          algorithm: "ed25519",
+          privateKey: pair.privateKey,
+          components: ["@method", "@target-uri"],
+          created: 1_700_000_000,
+        }),
+      ],
     })
     await m.get("https://example.com/foo")
 

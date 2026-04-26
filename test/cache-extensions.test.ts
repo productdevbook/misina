@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { createMisina } from "../src/index.ts"
-import { memoryStore, withCache } from "../src/cache/index.ts"
+import type { CacheEntry } from "../src/cache/index.ts"
+import { cache, memoryStore } from "../src/cache/index.ts"
+import type { MisinaContext } from "../src/types.ts"
 
 function jsonResponse(body: unknown, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -8,7 +10,7 @@ function jsonResponse(body: unknown, headers: Record<string, string> = {}): Resp
   })
 }
 
-describe("withCache — shouldStore filter", () => {
+describe("cache — shouldStore filter", () => {
   it("rejects responses that fail the predicate", async () => {
     const store = memoryStore()
     let calls = 0
@@ -19,12 +21,18 @@ describe("withCache — shouldStore filter", () => {
         return jsonResponse({ ok: true })
       },
     }
-    const m = withCache(createMisina({ driver, retry: 0 }), {
-      store,
-      shouldStore: (_req, res) => {
-        // Refuse to cache anything (simulate a strict policy).
-        return res.headers.get("x-cache") === "ok"
-      },
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [
+        cache({
+          store,
+          shouldStore: (_req: Request, res: Response) => {
+            // Refuse to cache anything (simulate a strict policy).
+            return res.headers.get("x-cache") === "ok"
+          },
+        }),
+      ],
     })
 
     await m.get("https://api.test/")
@@ -42,9 +50,10 @@ describe("withCache — shouldStore filter", () => {
         return jsonResponse({ ok: true }, { "cache-control": "max-age=60" })
       },
     }
-    const m = withCache(createMisina({ driver, retry: 0 }), {
-      store,
-      shouldStore: () => true,
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [cache({ store, shouldStore: () => true })],
     })
 
     await m.get("https://api.test/")
@@ -53,7 +62,7 @@ describe("withCache — shouldStore filter", () => {
   })
 })
 
-describe("withCache — beforeStore mutator", () => {
+describe("cache — beforeStore mutator", () => {
   it("can replace the entry", async () => {
     const store = memoryStore()
     const driver = {
@@ -61,13 +70,19 @@ describe("withCache — beforeStore mutator", () => {
       request: async () =>
         jsonResponse({ secret: "abc", visible: 1 }, { "cache-control": "max-age=60" }),
     }
-    const m = withCache(createMisina({ driver, retry: 0 }), {
-      store,
-      beforeStore: (entry) => ({
-        ...entry,
-        // tag the entry with custom metadata
-        vary: { ...(entry.vary ?? {}), "x-source": "filtered" },
-      }),
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [
+        cache({
+          store,
+          beforeStore: (entry: CacheEntry) => ({
+            ...entry,
+            // tag the entry with custom metadata
+            vary: { ...(entry.vary ?? {}), "x-source": "filtered" },
+          }),
+        }),
+      ],
     })
 
     await m.get("https://api.test/")
@@ -88,9 +103,10 @@ describe("withCache — beforeStore mutator", () => {
         return jsonResponse({ ok: true }, { "cache-control": "max-age=60" })
       },
     }
-    const m = withCache(createMisina({ driver, retry: 0 }), {
-      store,
-      beforeStore: () => undefined,
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [cache({ store, beforeStore: () => undefined })],
     })
 
     await m.get("https://api.test/")
@@ -99,7 +115,7 @@ describe("withCache — beforeStore mutator", () => {
   })
 })
 
-describe("withCache — custom key with meta", () => {
+describe("cache — custom key with meta", () => {
   it("custom key partitions cache by user (verifies key callback works as documented)", async () => {
     const store = memoryStore()
     let calls = 0
@@ -110,12 +126,18 @@ describe("withCache — custom key with meta", () => {
         return jsonResponse({ ok: true }, { "cache-control": "max-age=60" })
       },
     }
-    const m = withCache(createMisina({ driver, retry: 0 }), {
-      store,
-      key: (ctx) => {
-        const userId = (ctx.options.headers as Record<string, string>)?.["x-user-id"] ?? "anon"
-        return `${ctx.options.method} ${ctx.options.url}|user=${userId}`
-      },
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [
+        cache({
+          store,
+          key: (ctx: MisinaContext) => {
+            const userId = (ctx.options.headers as Record<string, string>)?.["x-user-id"] ?? "anon"
+            return `${ctx.options.method} ${ctx.options.url}|user=${userId}`
+          },
+        }),
+      ],
     })
 
     await m.get("https://api.test/profile", { headers: { "x-user-id": "u1" } })

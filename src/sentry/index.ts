@@ -9,17 +9,17 @@
  * @example
  * ```ts
  * import * as Sentry from "@sentry/browser"
- * import { withSentry } from "misina/sentry"
+ * import { createMisina } from "misina"
+ * import { sentry } from "misina/sentry"
  *
- * const api = withSentry(createMisina({ baseURL }), {
- *   Sentry,
- *   captureLevel: "error",
- *   redactHeaders: ["authorization", "cookie"],
+ * const api = createMisina({
+ *   baseURL,
+ *   use: [sentry({ Sentry, captureLevel: "error", redactHeaders: ["authorization", "cookie"] })],
  * })
  * ```
  */
 
-import type { Misina } from "../types.ts"
+import type { MisinaPlugin } from "../types.ts"
 
 /** Minimal Sentry surface used by the adapter. */
 export interface SentryHub {
@@ -58,12 +58,13 @@ export interface SentryOptions {
 
 const DEFAULT_REDACT = ["authorization", "cookie", "proxy-authorization"]
 
-export function withSentry(misina: Misina, options: SentryOptions): Misina {
+export function sentry(options: SentryOptions): MisinaPlugin {
   const captureLevel = options.captureLevel ?? "error"
   const redact = new Set((options.redactHeaders ?? DEFAULT_REDACT).map((h) => h.toLowerCase()))
   const successBreadcrumb = options.successBreadcrumb ?? false
 
-  return misina.extend({
+  return {
+    name: "sentry",
     hooks: {
       beforeError: (error, ctx) => {
         if (!shouldCapture(error, captureLevel)) return error
@@ -95,7 +96,7 @@ export function withSentry(misina: Misina, options: SentryOptions): Misina {
         })
       },
     },
-  })
+  }
 }
 
 function shouldCapture(error: unknown, level: "all" | "error" | "5xx"): boolean {

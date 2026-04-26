@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { createMisina } from "../src/index.ts"
-import { withBasic, withBearer, withCsrf, withRefreshOn401 } from "../src/auth/index.ts"
+import { basic, bearer, csrf, refreshOn401 } from "../src/auth/index.ts"
 
 function recordingDriver() {
   const seen: { url: string; auth: string | null; csrf: string | null }[] = []
@@ -20,17 +20,17 @@ function recordingDriver() {
   }
 }
 
-describe("withBearer — token edge cases", () => {
+describe("bearer — token edge cases", () => {
   it("empty token: header is not set", async () => {
     const { seen, driver } = recordingDriver()
-    const m = withBearer(createMisina({ driver, retry: 0 }), "")
+    const m = createMisina({ driver, retry: 0, use: [bearer("")] })
     await m.get("https://api.test/")
     expect(seen[0]?.auth).toBeNull()
   })
 
   it("function returning empty: header is not set", async () => {
     const { seen, driver } = recordingDriver()
-    const m = withBearer(createMisina({ driver, retry: 0 }), () => "")
+    const m = createMisina({ driver, retry: 0, use: [bearer(() => "")] })
     await m.get("https://api.test/")
     expect(seen[0]?.auth).toBeNull()
   })
@@ -38,25 +38,25 @@ describe("withBearer — token edge cases", () => {
   it("async function source: token resolved per-request", async () => {
     const { seen, driver } = recordingDriver()
     let n = 0
-    const m = withBearer(createMisina({ driver, retry: 0 }), async () => `t${++n}`)
+    const m = createMisina({ driver, retry: 0, use: [bearer(async () => `t${++n}`)] })
     await m.get("https://api.test/a")
     await m.get("https://api.test/b")
     expect(seen[0]?.auth).toBe("Bearer t1")
     expect(seen[1]?.auth).toBe("Bearer t2")
   })
 
-  it("user-supplied auth header is overridden by withBearer", async () => {
+  it("user-supplied auth header is overridden by bearer", async () => {
     const { seen, driver } = recordingDriver()
-    const m = withBearer(createMisina({ driver, retry: 0 }), "from-bearer")
+    const m = createMisina({ driver, retry: 0, use: [bearer("from-bearer")] })
     await m.get("https://api.test/", { headers: { authorization: "from-call" } })
     expect(seen[0]?.auth).toBe("Bearer from-bearer")
   })
 })
 
-describe("withBasic — encoding edges", () => {
+describe("basic — encoding edges", () => {
   it("ASCII credentials encode correctly", async () => {
     const { seen, driver } = recordingDriver()
-    const m = withBasic(createMisina({ driver, retry: 0 }), "alice", "secret")
+    const m = createMisina({ driver, retry: 0, use: [basic("alice", "secret")] })
     await m.get("https://api.test/")
     // base64("alice:secret") = "YWxpY2U6c2VjcmV0"
     expect(seen[0]?.auth).toBe("Basic YWxpY2U6c2VjcmV0")
@@ -65,7 +65,7 @@ describe("withBasic — encoding edges", () => {
   it("non-ASCII (Turkish chars) credentials encode as UTF-8, not Latin1", async () => {
     const { seen, driver } = recordingDriver()
     // "şifre" — has a non-Latin1 char, would crash naive btoa.
-    const m = withBasic(createMisina({ driver, retry: 0 }), "kullanıcı", "şifre")
+    const m = createMisina({ driver, retry: 0, use: [basic("kullanıcı", "şifre")] })
     await m.get("https://api.test/")
     // Decode back via atob → bytes → utf8 string.
     const auth = seen[0]?.auth ?? ""
@@ -80,22 +80,29 @@ describe("withBasic — encoding edges", () => {
   it("function-form credentials are resolved per request", async () => {
     const { seen, driver } = recordingDriver()
     let i = 0
-    const m = withBasic(
-      createMisina({ driver, retry: 0 }),
-      () => `user${++i}`,
-      () => "pwd",
-    )
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [
+        basic(
+          () => `user${++i}`,
+          () => "pwd",
+        ),
+      ],
+    })
     await m.get("https://api.test/a")
     await m.get("https://api.test/b")
     expect(seen[0]?.auth).not.toBe(seen[1]?.auth)
   })
 })
 
-describe("withCsrf — cookie patterns", () => {
+describe("csrf — cookie patterns", () => {
   it("reads token from cookie and sets header", async () => {
     const { seen, driver } = recordingDriver()
-    const m = withCsrf(createMisina({ driver, retry: 0 }), {
-      getCookies: () => "XSRF-TOKEN=abc123; sessionid=xyz",
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [csrf({ getCookies: () => "XSRF-TOKEN=abc123; sessionid=xyz" })],
     })
     await m.get("https://api.test/")
     expect(seen[0]?.csrf).toBe("abc123")
@@ -103,8 +110,10 @@ describe("withCsrf — cookie patterns", () => {
 
   it("URL-encoded cookie value is decoded", async () => {
     const { seen, driver } = recordingDriver()
-    const m = withCsrf(createMisina({ driver, retry: 0 }), {
-      getCookies: () => "XSRF-TOKEN=token%2Bwith%3Dpadding",
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [csrf({ getCookies: () => "XSRF-TOKEN=token%2Bwith%3Dpadding" })],
     })
     await m.get("https://api.test/")
     expect(seen[0]?.csrf).toBe("token+with=padding")
@@ -112,8 +121,10 @@ describe("withCsrf — cookie patterns", () => {
 
   it("missing cookie: header not set", async () => {
     const { seen, driver } = recordingDriver()
-    const m = withCsrf(createMisina({ driver, retry: 0 }), {
-      getCookies: () => "irrelevant=value",
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [csrf({ getCookies: () => "irrelevant=value" })],
     })
     await m.get("https://api.test/")
     expect(seen[0]?.csrf).toBeNull()
@@ -121,9 +132,15 @@ describe("withCsrf — cookie patterns", () => {
 
   it("cookie name with regex metacharacters is escaped", async () => {
     const { seen, driver } = recordingDriver()
-    const m = withCsrf(createMisina({ driver, retry: 0 }), {
-      cookieName: "csrf.token+v2",
-      getCookies: () => "csrf.token+v2=safe",
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [
+        csrf({
+          cookieName: "csrf.token+v2",
+          getCookies: () => "csrf.token+v2=safe",
+        }),
+      ],
     })
     await m.get("https://api.test/")
     expect(seen[0]?.csrf).toBe("safe")
@@ -138,9 +155,15 @@ describe("withCsrf — cookie patterns", () => {
         return new Response("{}", { headers: { "content-type": "application/json" } })
       },
     }
-    const m = withCsrf(createMisina({ driver, retry: 0 }), {
-      headerName: "X-CSRF-Token",
-      getCookies: () => "XSRF-TOKEN=abc",
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [
+        csrf({
+          headerName: "X-CSRF-Token",
+          getCookies: () => "XSRF-TOKEN=abc",
+        }),
+      ],
     })
     await m.get("https://api.test/")
     expect(xsrfHeader).toBe("abc")
@@ -148,10 +171,16 @@ describe("withCsrf — cookie patterns", () => {
 
   it("getCookies throwing is gracefully handled", async () => {
     const { seen, driver } = recordingDriver()
-    const m = withCsrf(createMisina({ driver, retry: 0 }), {
-      getCookies: () => {
-        throw new Error("no document")
-      },
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [
+        csrf({
+          getCookies: () => {
+            throw new Error("no document")
+          },
+        }),
+      ],
     })
     // Must not throw — request goes through without csrf header.
     await m.get("https://api.test/")
@@ -159,7 +188,7 @@ describe("withCsrf — cookie patterns", () => {
   })
 })
 
-describe("withRefreshOn401 — additional edges", () => {
+describe("refreshOn401 — additional edges", () => {
   it("Bearer is replaced after refresh, even if app supplies its own auth header", async () => {
     let attempts = 0
     const driver = {
@@ -182,8 +211,7 @@ describe("withRefreshOn401 — additional edges", () => {
       },
     }
 
-    const misina = createMisina({ driver, retry: 0 })
-    const api = withRefreshOn401(misina, { refresh: () => "NEW" })
+    const api = createMisina({ driver, retry: 0, use: [refreshOn401({ refresh: () => "NEW" })] })
 
     const res = await api.get<{ ok: boolean }>("https://api.test/", {
       headers: { authorization: "Bearer OLD" },
@@ -204,10 +232,15 @@ describe("withRefreshOn401 — additional edges", () => {
         })
       },
     }
-    const misina = createMisina({ driver, retry: 0 })
-    const api = withRefreshOn401(misina, {
-      refresh: () => "NEW",
-      shouldRefresh: (ctx) => ctx.response?.status === 419,
+    const api = createMisina({
+      driver,
+      retry: 0,
+      use: [
+        refreshOn401({
+          refresh: () => "NEW",
+          shouldRefresh: (ctx) => ctx.response?.status === 419,
+        }),
+      ],
     })
 
     const res = await api.get("https://api.test/")

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { createMisina } from "../src/index.ts"
-import { signRequest, withSigV4 } from "../src/auth/sigv4.ts"
+import { sigv4, signRequest } from "../src/auth/sigv4.ts"
 
 // AWS Signature V4 test suite: `get-vanilla`.
 // https://github.com/awsdocs/aws-doc-sdk-examples/tree/main/aws-sig-v4-test-suite
@@ -114,7 +114,7 @@ describe("signRequest — AWS test vectors", () => {
   })
 })
 
-describe("withSigV4 hook", () => {
+describe("sigv4 hook", () => {
   it("attaches Authorization to outgoing requests via beforeRequest", async () => {
     let capturedAuth: string | null = null
     const driver = {
@@ -124,10 +124,16 @@ describe("withSigV4 hook", () => {
         return new Response("ok", { status: 200 })
       },
     }
-    const m = withSigV4(createMisina({ driver, retry: 0 }), {
-      service: "bedrock-runtime",
-      region: "us-east-1",
-      credentials: TEST_CREDENTIALS,
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [
+        sigv4({
+          service: "bedrock-runtime",
+          region: "us-east-1",
+          credentials: TEST_CREDENTIALS,
+        }),
+      ],
     })
     await m.get("https://bedrock-runtime.us-east-1.amazonaws.com/foo")
     expect(capturedAuth).toMatch(/^AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/)
@@ -144,13 +150,19 @@ describe("withSigV4 hook", () => {
         return new Response("ok", { status: 200 })
       },
     }
-    const m = withSigV4(createMisina({ driver, retry: 0 }), {
-      service: "service",
-      region: "us-east-1",
-      credentials: async () => {
-        provides++
-        return { accessKeyId: `AKIA${provides}`, secretAccessKey: "secret" }
-      },
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [
+        sigv4({
+          service: "service",
+          region: "us-east-1",
+          credentials: async () => {
+            provides++
+            return { accessKeyId: `AKIA${provides}`, secretAccessKey: "secret" }
+          },
+        }),
+      ],
     })
     await m.get("https://example.amazonaws.com/")
     await m.get("https://example.amazonaws.com/")

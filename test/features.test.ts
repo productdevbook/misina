@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest"
 import { createMisina } from "../src/index.ts"
 import mockDriverFactory, { getMockApi } from "../src/driver/mock.ts"
-import { withCookieJar, MemoryCookieJar } from "../src/cookie/index.ts"
-import { withBearer, withBasic } from "../src/auth/index.ts"
+import { cookieJar, MemoryCookieJar } from "../src/cookie/index.ts"
+import { basic, bearer } from "../src/auth/index.ts"
 import { paginateAll } from "../src/paginate/index.ts"
-import { withCache, memoryStore } from "../src/cache/index.ts"
+import { cache, memoryStore } from "../src/cache/index.ts"
 import { sseStream, ndjsonStream } from "../src/stream/index.ts"
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
@@ -90,7 +90,7 @@ describe("cookie jar (#21)", () => {
     })
 
     const jar = new MemoryCookieJar()
-    const m = withCookieJar(createMisina({ driver, retry: 0 }), jar)
+    const m = createMisina({ driver, retry: 0, use: [cookieJar(jar)] })
 
     await m.get("https://api.test/login")
     const res = await m.get<{ cookie: string }>("https://api.test/profile")
@@ -100,25 +100,25 @@ describe("cookie jar (#21)", () => {
 })
 
 describe("auth helpers (#15)", () => {
-  it("withBearer adds Authorization header", async () => {
+  it("bearer adds Authorization header", async () => {
     const driver = mockDriverFactory({ response: jsonResponse({}) })
-    const m = withBearer(createMisina({ driver, retry: 0 }), "abc123")
+    const m = createMisina({ driver, retry: 0, use: [bearer("abc123")] })
 
     await m.get("https://api.test/")
     expect(getMockApi(driver)!.calls[0]!.headers.authorization).toBe("Bearer abc123")
   })
 
-  it("withBearer accepts function source", async () => {
+  it("bearer accepts function source", async () => {
     const driver = mockDriverFactory({ response: jsonResponse({}) })
-    const m = withBearer(createMisina({ driver, retry: 0 }), () => "dynamic")
+    const m = createMisina({ driver, retry: 0, use: [bearer(() => "dynamic")] })
 
     await m.get("https://api.test/")
     expect(getMockApi(driver)!.calls[0]!.headers.authorization).toBe("Bearer dynamic")
   })
 
-  it("withBasic encodes credentials", async () => {
+  it("basic encodes credentials", async () => {
     const driver = mockDriverFactory({ response: jsonResponse({}) })
-    const m = withBasic(createMisina({ driver, retry: 0 }), "user", "pass")
+    const m = createMisina({ driver, retry: 0, use: [basic("user", "pass")] })
 
     await m.get("https://api.test/")
     const auth = getMockApi(driver)!.calls[0]!.headers.authorization
@@ -168,7 +168,7 @@ describe("cache (#14)", () => {
     })
 
     const store = memoryStore()
-    const m = withCache(createMisina({ driver, retry: 0 }), { store, ttl: 5000 })
+    const m = createMisina({ driver, retry: 0, use: [cache({ store, ttl: 5000 })] })
 
     const a = await m.get<{ count: number }>("https://api.test/")
     const b = await m.get<{ count: number }>("https://api.test/")

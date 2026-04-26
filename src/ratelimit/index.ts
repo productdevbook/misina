@@ -8,7 +8,7 @@
  *   headers, and backs off on 429.
  */
 
-import type { Misina } from "../types.ts"
+import type { MisinaPlugin } from "../types.ts"
 
 export interface RateLimitBucket {
   limit: number | undefined
@@ -140,14 +140,15 @@ export interface RateLimitOptions {
  * to the real budget the server reports. 429 responses drain both
  * buckets aggressively so subsequent calls back off.
  */
-export function withRateLimit(misina: Misina, options: RateLimitOptions = {}): Misina {
+export function rateLimit(options: RateLimitOptions = {}): MisinaPlugin {
   const now = options.now ?? ((): number => Date.now())
   const estimate = options.estimateTokens ?? ((): number => 0)
 
   const requests = createBucket(options.rpm ?? Number.POSITIVE_INFINITY, now)
   const tokens = createBucket(options.tpm ?? Number.POSITIVE_INFINITY, now)
 
-  return misina.extend({
+  return {
+    name: "rateLimit",
     hooks: {
       beforeRequest: async (ctx) => {
         const cost = Math.max(0, estimate(ctx.request))
@@ -169,7 +170,7 @@ export function withRateLimit(misina: Misina, options: RateLimitOptions = {}): M
         }
       },
     },
-  })
+  }
 }
 
 interface Bucket {

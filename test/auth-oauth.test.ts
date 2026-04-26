@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { createMisina } from "../src/index.ts"
-import { createPkcePair, exchangePkceCode, peekJwtExp, withJwtRefresh } from "../src/auth/oauth.ts"
+import { createPkcePair, exchangePkceCode, jwtRefresh, peekJwtExp } from "../src/auth/oauth.ts"
 
 function makeJwt(payload: Record<string, unknown>): string {
   // Header doesn't matter for peekJwtExp; signature segment can be empty.
@@ -26,7 +26,7 @@ describe("peekJwtExp", () => {
   })
 })
 
-describe("withJwtRefresh", () => {
+describe("jwtRefresh", () => {
   it("refreshes proactively when the JWT is about to expire", async () => {
     const expiringExp = Math.floor(Date.now() / 1000) + 5 // 5s left
     let token = makeJwt({ exp: expiringExp })
@@ -39,14 +39,20 @@ describe("withJwtRefresh", () => {
         return new Response("ok", { status: 200 })
       },
     }
-    const m = withJwtRefresh(createMisina({ driver, retry: 0 }), {
-      getToken: () => token,
-      refresh: async () => {
-        refreshes++
-        token = makeJwt({ exp: Math.floor(Date.now() / 1000) + 3600 })
-        return token
-      },
-      expiryWindowMs: 30_000, // refresh anything < 30s left
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [
+        jwtRefresh({
+          getToken: () => token,
+          refresh: async () => {
+            refreshes++
+            token = makeJwt({ exp: Math.floor(Date.now() / 1000) + 3600 })
+            return token
+          },
+          expiryWindowMs: 30_000, // refresh anything < 30s left
+        }),
+      ],
     })
     await m.get("https://x.test/", { headers: { authorization: `Bearer ${token}` } })
     expect(refreshes).toBe(1)
@@ -60,12 +66,18 @@ describe("withJwtRefresh", () => {
       name: "x",
       request: async () => new Response("ok", { status: 200 }),
     }
-    const m = withJwtRefresh(createMisina({ driver, retry: 0 }), {
-      getToken: () => token,
-      refresh: async () => {
-        refreshes++
-        return token
-      },
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [
+        jwtRefresh({
+          getToken: () => token,
+          refresh: async () => {
+            refreshes++
+            return token
+          },
+        }),
+      ],
     })
     await m.get("https://x.test/", { headers: { authorization: `Bearer ${token}` } })
     expect(refreshes).toBe(0)
@@ -79,15 +91,21 @@ describe("withJwtRefresh", () => {
       name: "x",
       request: async () => new Response("ok", { status: 200 }),
     }
-    const m = withJwtRefresh(createMisina({ driver, retry: 0 }), {
-      getToken: () => token,
-      refresh: async () => {
-        refreshes++
-        await new Promise((r) => setTimeout(r, 5))
-        token = makeJwt({ exp: Math.floor(Date.now() / 1000) + 3600 })
-        return token
-      },
-      expiryWindowMs: 30_000,
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [
+        jwtRefresh({
+          getToken: () => token,
+          refresh: async () => {
+            refreshes++
+            await new Promise((r) => setTimeout(r, 5))
+            token = makeJwt({ exp: Math.floor(Date.now() / 1000) + 3600 })
+            return token
+          },
+          expiryWindowMs: 30_000,
+        }),
+      ],
     })
     await Promise.all([
       m.get("https://x.test/a", { headers: { authorization: `Bearer ${token}` } }),
@@ -103,9 +121,15 @@ describe("withJwtRefresh", () => {
       name: "x",
       request: async () => new Response("ok", { status: 200 }),
     }
-    const m = withJwtRefresh(createMisina({ driver, retry: 0 }), {
-      getToken: () => token,
-      refresh: () => token, // unchanged — bug scenario
+    const m = createMisina({
+      driver,
+      retry: 0,
+      use: [
+        jwtRefresh({
+          getToken: () => token,
+          refresh: () => token, // unchanged — bug scenario
+        }),
+      ],
     })
     await expect(
       m.get("https://x.test/", { headers: { authorization: `Bearer ${token}` } }),

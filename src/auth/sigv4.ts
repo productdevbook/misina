@@ -1,8 +1,8 @@
 /**
  * AWS Signature Version 4 signer — zero-dep, Web Crypto only.
  *
- * `withSigV4(misina, opts)` is a Misina extension that signs every
- * outgoing request with the standard AWS SigV4 algorithm:
+ * `sigv4(opts)` is a Misina plugin that signs every outgoing request with
+ * the standard AWS SigV4 algorithm:
  *
  *   1. Build the canonical request (method + canonical URI + canonical
  *      query + canonical headers + signed-headers list + payload hash).
@@ -19,17 +19,23 @@
  *
  * @example
  * ```ts
- * import { withSigV4 } from "misina/auth/sigv4"
+ * import { createMisina } from "misina"
+ * import { sigv4 } from "misina/auth/sigv4"
  *
- * const api = withSigV4(createMisina({ baseURL: "https://bedrock-runtime.us-east-1.amazonaws.com" }), {
- *   service: "bedrock-runtime",
- *   region: "us-east-1",
- *   credentials: async () => ({ accessKeyId, secretAccessKey, sessionToken }),
+ * const api = createMisina({
+ *   baseURL: "https://bedrock-runtime.us-east-1.amazonaws.com",
+ *   use: [
+ *     sigv4({
+ *       service: "bedrock-runtime",
+ *       region: "us-east-1",
+ *       credentials: async () => ({ accessKeyId, secretAccessKey, sessionToken }),
+ *     }),
+ *   ],
  * })
  * ```
  */
 
-import type { Misina } from "../types.ts"
+import type { MisinaPlugin } from "../types.ts"
 
 export interface SigV4Credentials {
   accessKeyId: string
@@ -52,12 +58,13 @@ export interface SigV4Options {
 const ALGORITHM = "AWS4-HMAC-SHA256"
 
 /**
- * Wrap a Misina with automatic SigV4 signing. Runs as a `beforeRequest`
- * hook so the Request that hits the driver already carries
- * `Authorization`, `x-amz-date`, and `x-amz-content-sha256`.
+ * Sign every request with AWS SigV4. Runs as a `beforeRequest` hook so the
+ * Request that hits the driver already carries `Authorization`,
+ * `x-amz-date`, and `x-amz-content-sha256`.
  */
-export function withSigV4(misina: Misina, options: SigV4Options): Misina {
-  return misina.extend({
+export function sigv4(options: SigV4Options): MisinaPlugin {
+  return {
+    name: "sigv4",
     hooks: {
       beforeRequest: async (ctx) => {
         const creds =
@@ -72,7 +79,7 @@ export function withSigV4(misina: Misina, options: SigV4Options): Misina {
         })
       },
     },
-  })
+  }
 }
 
 export interface SignRequestOptions {

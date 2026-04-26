@@ -11,11 +11,17 @@
  * to take advantage of CDN caching. Auto-disabled for mutations and
  * for queries above ~1500 chars (URL length safety).
  *
+ * Note: GraphQL doesn't fit the misina plugin shape because it returns a
+ * different surface (`GraphqlClient`), not a `Misina`. Use it as a sibling
+ * helper layered on top of a misina instance.
+ *
  * @example
  * ```ts
- * import { withGraphql } from "misina/graphql"
+ * import { createMisina } from "misina"
+ * import { createGraphqlClient } from "misina/graphql"
  *
- * const gql = withGraphql(createMisina({ baseURL }), { endpoint: "/graphql" })
+ * const misina = createMisina({ baseURL })
+ * const gql = createGraphqlClient(misina, { endpoint: "/graphql" })
  * const data = await gql.query<User>(`query GetUser($id: ID!) { user(id: $id) { id name } }`, { id: "42" })
  * ```
  */
@@ -80,7 +86,7 @@ export class GraphqlAggregateError extends Error {
   }
 }
 
-export function withGraphql(misina: Misina, options: GraphqlOptions = {}): GraphqlClient {
+export function createGraphqlClient(misina: Misina, options: GraphqlOptions = {}): GraphqlClient {
   const endpoint = options.endpoint ?? "/graphql"
   const apq = options.persistedQueries ?? false
   const getFallbackBelow = options.getFallbackBelow ?? 0

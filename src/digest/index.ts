@@ -1,30 +1,30 @@
 /**
  * RFC 9530 Digest Fields — `Content-Digest` and `Repr-Digest`.
  *
- * `withDigest(misina, opts)` automatically computes a digest of the
- * outgoing request body and attaches it as a Structured Field
- * dictionary header. `verifyDigest(response)` reads the digest from a
- * received response and verifies it against the body bytes; mismatch
- * throws `DigestMismatchError`.
+ * `digestAuth(opts)` automatically computes a digest of the outgoing
+ * request body and attaches it as a Structured Field dictionary header.
+ * `verifyDigest(response)` reads the digest from a received response and
+ * verifies it against the body bytes; mismatch throws `DigestMismatchError`.
  *
- * Hashes are computed via `crypto.subtle.digest` so any runtime with
- * the Web Crypto API (Node ≥ 19, Bun, Deno, browsers) works without a
+ * Hashes are computed via `crypto.subtle.digest` so any runtime with the
+ * Web Crypto API (Node ≥ 19, Bun, Deno, browsers) works without a
  * polyfill. Bodies that arrive as `ReadableStream` are tee'd so the
  * caller's body remains readable — we drain one branch into the digest
  * input and pass the other along to the wire.
  *
  * @example
  * ```ts
- * import { withDigest, verifyDigest } from "misina/digest"
+ * import { createMisina } from "misina"
+ * import { digestAuth, verifyDigest } from "misina/digest"
  *
- * const api = withDigest(createMisina({ baseURL }), { algorithm: "sha-256" })
+ * const api = createMisina({ baseURL, use: [digestAuth({ algorithm: "sha-256" })] })
  * const res = await api.post("/upload", body) // Content-Digest auto-added
  *
  * await verifyDigest(res.raw) // throws DigestMismatchError on mismatch
  * ```
  */
 
-import type { Misina } from "../types.ts"
+import type { MisinaPlugin } from "../types.ts"
 
 export type DigestAlgorithm = "sha-256" | "sha-512"
 
@@ -65,21 +65,21 @@ const ALGO_TO_SUBTLE: Record<DigestAlgorithm, string> = {
 }
 
 /**
- * Wrap a Misina with automatic `Content-Digest` (or `Repr-Digest`)
- * generation on outgoing requests. The hook reads the body bytes,
- * digests them with `crypto.subtle.digest`, and writes a Structured
- * Field dictionary entry of the form `<algo>=:<base64>:` to the
- * configured header.
+ * Plugin that automatically generates a `Content-Digest` (or `Repr-Digest`)
+ * header on outgoing requests. The hook reads the body bytes, digests them
+ * with `crypto.subtle.digest`, and writes a Structured Field dictionary
+ * entry of the form `<algo>=:<base64>:` to the configured header.
  *
- * If the request has no body (or `skipEmptyBody` is true and the body
- * is empty) the header is not added.
+ * If the request has no body (or `skipEmptyBody` is true and the body is
+ * empty) the header is not added.
  */
-export function withDigest(misina: Misina, options: DigestOptions = {}): Misina {
+export function digestAuth(options: DigestOptions = {}): MisinaPlugin {
   const algorithm = options.algorithm ?? "sha-256"
   const field = options.field ?? "content-digest"
   const skipEmptyBody = options.skipEmptyBody ?? true
 
-  return misina.extend({
+  return {
+    name: "digestAuth",
     hooks: {
       beforeRequest: async (ctx) => {
         const original = ctx.request
@@ -108,7 +108,7 @@ export function withDigest(misina: Misina, options: DigestOptions = {}): Misina 
         })
       },
     },
-  })
+  }
 }
 
 /**

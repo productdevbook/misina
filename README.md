@@ -104,19 +104,19 @@
 - **`requestId`** on `MisinaResponse` and `HTTPError` — auto-scanned from `x-request-id` / `request-id` / `x-correlation-id`. Surfaced in error message as `[req: <id>]`.
 - **LLM SDK retry parity** — `retry-after-ms` (sub-second precision) + `x-should-retry` server hints honored by default.
 - **`Server-Timing` parser** — `MisinaResponse.serverTimings` populated automatically.
-- **W3C Trace Context** (`misina/tracing`) — `withTracing()` injects `traceparent` + `tracestate` + optional Baggage.
+- **W3C Trace Context** (`misina/tracing`) — `tracing()` injects `traceparent` + `tracestate` + optional Baggage.
 - **Rate-limit header parser** (`misina/ratelimit`) — handles OpenAI / Anthropic / IETF draft styles, normalizes reset values to `Date`.
 - **HTTP cache extras** — RFC 5861 `stale-while-revalidate` + `stale-if-error`, RFC 8246 `immutable`, plus an RFC 9211 `parseCacheStatus()` helper backed by the Structured Field Values parser.
 - **SSE reconnect** — `sseStreamReconnecting()` honors `Last-Event-ID`, the server's `retry:` field, and exponential backoff across disconnects (HTML §9.2.4).
 - **Request body compression** — opt-in `compressRequestBody: 'gzip' | 'deflate'` symmetrical with the response-side `decompress` knob.
 - **Cookie jar across redirects** — `Set-Cookie` issued by intermediate 30x hops is persisted (login flows that set the session on the redirect).
 - **Manual `composeSignals`** — fixes the Node #57736 listener-leak when long-lived AbortSignals are shared across many requests.
-- **RFC 9530 digest** (`misina/digest`) — `withDigest()` adds `Content-Digest` / `Repr-Digest` automatically; `verifyDigest()` validates incoming responses.
+- **RFC 9530 digest** (`misina/digest`) — `digestAuth()` adds `Content-Digest` / `Repr-Digest` automatically; `verifyDigest()` validates incoming responses.
 - **Resumable transfers** (`misina/transfer`) — `downloadResumable()` is Range-aware with per-chunk retries; `uploadResumable()` follows draft-ietf-httpbis-resumable-upload (POST + PATCH with `Upload-Offset`).
-- **OAuth helpers** (`misina/auth/oauth`) — `withJwtRefresh()` peeks `exp` and refreshes preemptively (single-flight); `createPkcePair()` + `exchangePkceCode()` for PKCE flows.
-- **AWS SigV4 signer** (`misina/auth/sigv4`) — `withSigV4()` adds `Authorization: AWS4-HMAC-SHA256 ...` + `x-amz-date` + `x-amz-content-sha256` to every request via Web Crypto. No `@aws-sdk/*` peer dep.
-- **RFC 9421 HTTP Message Signatures** (`misina/auth/signed`) — `withMessageSignature()` covers Ed25519 / ECDSA P-256 / RSA-PSS / HMAC-SHA256. Cloudflare Verified Bots / OpenAI Operator pattern.
-- **OpenTelemetry spans** (`misina/otel`) — `withOtel()` emits HTTP client spans with semconv attributes; tracer is duck-typed so misina never imports `@opentelemetry/*`.
+- **OAuth helpers** (`misina/auth/oauth`) — `jwtRefresh()` peeks `exp` and refreshes preemptively (single-flight); `createPkcePair()` + `exchangePkceCode()` for PKCE flows.
+- **AWS SigV4 signer** (`misina/auth/sigv4`) — `sigv4()` adds `Authorization: AWS4-HMAC-SHA256 ...` + `x-amz-date` + `x-amz-content-sha256` to every request via Web Crypto. No `@aws-sdk/*` peer dep.
+- **RFC 9421 HTTP Message Signatures** (`misina/auth/signed`) — `messageSignature()` covers Ed25519 / ECDSA P-256 / RSA-PSS / HMAC-SHA256. Cloudflare Verified Bots / OpenAI Operator pattern.
+- **OpenTelemetry spans** (`misina/otel`) — `otel()` emits HTTP client spans with semconv attributes; tracer is duck-typed so misina never imports `@opentelemetry/*`.
 - **Undici driver** (`misina/driver/undici`) — Node-only optional driver that takes any `undici.Agent` / `Pool` / `Client` so callers can tune connection pool, keep-alive, pipelining, and HTTP/2 multiplexing.
 - **node:http2 driver** (`misina/driver/http2`) — zero-dep alternative for environments that can't ship undici. Multiplexes streams over one session per origin; auto-reconnects on `GOAWAY`.
 - **VCR-lite test helpers** — `record()` + `recordToJSON()` + `replayFromJSON()` round-trip cassettes; `harToCassette()` imports HAR; `coverage()` flags unused routes; `randomStatus` / `randomNetworkError` for chaos; `misinaCallSerializer` redacts volatile headers in Vitest snapshots.
@@ -223,11 +223,14 @@ const api = createMisina({
   retry: 2, // number | false | RetryOptions
   responseType: undefined, // 'json' | 'text' | 'arrayBuffer' | 'blob' | 'stream'
 
-  // Hooks + drivers
+  // Hooks + drivers + plugins
   hooks: {
     /* init / beforeRequest / beforeRetry / beforeRedirect /
               afterResponse / beforeError / onComplete */
   },
+  use: [
+    /* MisinaPlugin[] — bearer(...), cache(...), breaker(...), ... */
+  ],
   driver: customDriver, // default: fetch driver
   defer: [], // late-binding callbacks
 
@@ -589,29 +592,92 @@ import { misinaCallSerializer } from "misina/test"
 expect.addSnapshotSerializer(misinaCallSerializer())
 ```
 
+### Plugins (`use: [...]`)
+
+Cross-cutting features (auth, cache, cookies, dedupe, breaker, rate limit,
+tracing, …) ship as **plugins** — small factories you drop into the `use`
+array on `createMisina`. Plugins are applied left-to-right: the first plugin
+is innermost, the last is outermost. Each plugin can contribute `hooks` and
+optionally a typed surface (`extend`) that gets intersected onto the
+returned client. See the per-feature subsections below for the full set.
+
+#### Writing your own plugin
+
+A plugin is a plain object satisfying `MisinaPlugin<TExt>`:
+
+```ts
+import type { MisinaPlugin } from "misina"
+
+export function timingHeader(name = "x-client-time"): MisinaPlugin {
+  return {
+    name: "timingHeader",
+    hooks: {
+      beforeRequest: (ctx) => {
+        const headers = new Headers(ctx.request.headers)
+        headers.set(name, String(Date.now()))
+        return new Request(ctx.request, { headers })
+      },
+    },
+  }
+}
+```
+
+Need to wrap the client itself (e.g. add a method, intercept every call)?
+Use the `extend` slot and declare what your plugin contributes via `TExt`:
+
+```ts
+import type { Misina, MisinaPlugin } from "misina"
+
+interface TraceHandle {
+  trace: { lastUrl: string | undefined }
+}
+
+export function traceLog(): MisinaPlugin<TraceHandle> {
+  const handle: TraceHandle["trace"] = { lastUrl: undefined }
+  return {
+    name: "traceLog",
+    extend: (misina): Misina & TraceHandle => ({ ...misina, trace: handle }),
+    hooks: {
+      afterResponse: (ctx) => {
+        handle.lastUrl = ctx.request.url
+      },
+    },
+  }
+}
+
+const api = createMisina({ baseURL, use: [traceLog()] })
+api.trace.lastUrl // ✓ typed
+```
+
+`TExt` must be a plain object literal — unions trigger TypeScript's
+intersection × union cross-product expansion, which gets expensive fast.
+
 ### misina/auth
 
 ```ts
-import { withBearer, withBasic, withRefreshOn401, withCsrf } from "misina/auth"
+import { createMisina } from "misina"
+import { basic, bearer, csrf, refreshOn401 } from "misina/auth"
 
-const api = withBearer(createMisina({ baseURL }), () => store.token)
-
-const refreshed = withRefreshOn401(api, {
-  refresh: async () => fetchNewToken(),
+const api = createMisina({
+  baseURL,
+  use: [
+    bearer(() => store.token),
+    refreshOn401({ refresh: async () => fetchNewToken() }),
+    csrf({ cookieName: "csrftoken", headerName: "X-CSRFToken" }),
+  ],
 })
-
-const django = withCsrf(api, { cookieName: "csrftoken", headerName: "X-CSRFToken" })
 ```
 
-`withRefreshOn401` collapses concurrent 401s into a single in-flight refresh.
+`refreshOn401` collapses concurrent 401s into a single in-flight refresh.
 
 ### misina/cookie
 
 ```ts
-import { withCookieJar, MemoryCookieJar } from "misina/cookie"
+import { createMisina } from "misina"
+import { cookieJar, MemoryCookieJar } from "misina/cookie"
 
 const jar = new MemoryCookieJar()
-const api = withCookieJar(createMisina({ baseURL }), jar)
+const api = createMisina({ baseURL, use: [cookieJar(jar)] })
 
 await api.post("/login", { user, pass }) // Set-Cookie stored
 await api.get("/profile") // Cookie sent automatically
@@ -620,13 +686,19 @@ await api.get("/profile") // Cookie sent automatically
 ### misina/cache
 
 ```ts
-import { withCache, memoryStore, parseCacheControl, parseCacheStatus } from "misina/cache"
+import { createMisina } from "misina"
+import { cache, memoryStore, parseCacheControl, parseCacheStatus } from "misina/cache"
 
-const api = withCache(createMisina({ baseURL }), {
-  store: memoryStore({ max: 500 }),
-  ttl: 60_000,
-  revalidate: true, // ETag / Last-Modified → 304 → reuse
-  honorCacheControl: true, // max-age, s-w-r, s-i-e, immutable, no-store
+const api = createMisina({
+  baseURL,
+  use: [
+    cache({
+      store: memoryStore({ max: 500 }),
+      ttl: 60_000,
+      revalidate: true, // ETag / Last-Modified → 304 → reuse
+      honorCacheControl: true, // max-age, s-w-r, s-i-e, immutable, no-store
+    }),
+  ],
 })
 
 // RFC 9111 + RFC 5861 + RFC 8246 directives are honored:
@@ -645,9 +717,10 @@ const status = parseCacheStatus(res.headers.get("cache-status")) // RFC 9211
 ### misina/dedupe
 
 ```ts
-import { withDedupe } from "misina/dedupe"
+import { createMisina } from "misina"
+import { dedupe } from "misina/dedupe"
 
-const api = withDedupe(createMisina({ baseURL }))
+const api = createMisina({ baseURL, use: [dedupe()] })
 // Concurrent identical GETs collapse onto one network request.
 ```
 
@@ -767,14 +840,20 @@ half-open ──[probe fails]──▶ open  (fresh timer)
 ```
 
 ```ts
-import { withCircuitBreaker, CircuitOpenError } from "misina/breaker"
+import { createMisina } from "misina"
+import { breaker, CircuitOpenError } from "misina/breaker"
 
-const api = withCircuitBreaker(misina, {
-  failureThreshold: 5, // trip after 5 failures
-  windowMs: 30_000, // sliding window
-  halfOpenAfter: 10_000, // ms before letting one probe through
-  // isFailure defaults to: any thrown error or 5xx HTTPError.
-  // 4xx is intentionally NOT counted (client mistake, not service degradation).
+const api = createMisina({
+  baseURL,
+  use: [
+    breaker({
+      failureThreshold: 5, // trip after 5 failures
+      windowMs: 30_000, // sliding window
+      halfOpenAfter: 10_000, // ms before letting one probe through
+      // isFailure defaults to: any thrown error or 5xx HTTPError.
+      // 4xx is intentionally NOT counted (client mistake, not service degradation).
+    }),
+  ],
 })
 
 try {
@@ -800,7 +879,8 @@ naturally with misina's driver pattern and adds zero deps.
 Parser for `x-ratelimit-*` headers + an in-process token bucket.
 
 ```ts
-import { parseRateLimitHeaders, withRateLimit } from "misina/ratelimit"
+import { createMisina } from "misina"
+import { parseRateLimitHeaders, rateLimit } from "misina/ratelimit"
 
 // Read what the server says.
 const info = parseRateLimitHeaders(response.headers)
@@ -808,14 +888,19 @@ console.log(info?.requests?.remaining, info?.tokens?.remaining)
 
 // Or wire a client-side limiter that gates dispatch and learns from
 // the response headers automatically:
-const api = withRateLimit(createMisina({ baseURL }), {
-  rpm: 500,
-  tpm: 100_000,
-  estimateTokens: (req) => approximateInputTokens(req),
+const api = createMisina({
+  baseURL,
+  use: [
+    rateLimit({
+      rpm: 500,
+      tpm: 100_000,
+      estimateTokens: (req) => approximateInputTokens(req),
+    }),
+  ],
 })
 ```
 
-`withRateLimit` acquires from both buckets in `beforeRequest`, snaps
+`rateLimit` acquires from both buckets in `beforeRequest`, snaps
 the buckets to the server's `x-ratelimit-remaining-*` numbers in
 `onComplete`, and parks both until `resetAt` on a 429. AbortSignal
 cancels a queued acquire.
@@ -830,22 +915,28 @@ W3C Trace Context propagator. Auto-injects `traceparent` and forwards
 `tracestate` on every outgoing request. Optional W3C Baggage header.
 
 ```ts
-import { withTracing } from "misina/tracing"
+import { createMisina } from "misina"
+import { tracing } from "misina/tracing"
 
-const api = withTracing(createMisina({ baseURL }))
+const api = createMisina({ baseURL, use: [tracing()] })
 // Each request gets a fresh `traceparent: 00-<32hex>-<16hex>-01`.
 
 // Compose with OpenTelemetry by reading the active span:
 import { trace } from "@opentelemetry/api"
 
-const apiOtel = withTracing(createMisina({ baseURL }), {
-  getCurrentSpan: () => {
-    const span = trace.getActiveSpan()
-    if (!span) return null
-    const ctx = span.spanContext()
-    return { traceId: ctx.traceId, parentId: ctx.spanId, flags: ctx.traceFlags }
-  },
-  baggage: { tenant: "acme", env: "prod" },
+const apiOtel = createMisina({
+  baseURL,
+  use: [
+    tracing({
+      getCurrentSpan: () => {
+        const span = trace.getActiveSpan()
+        if (!span) return null
+        const ctx = span.spanContext()
+        return { traceId: ctx.traceId, parentId: ctx.spanId, flags: ctx.traceFlags }
+      },
+      baggage: { tenant: "acme", env: "prod" },
+    }),
+  ],
 })
 ```
 
@@ -898,14 +989,16 @@ pool tweaks).
 
 ### misina/digest
 
-`withDigest(misina, opts?)` automatically adds `Content-Digest` (RFC 9530) on outgoing requests with a body. `verifyDigest(response)`
+The `digestAuth(opts?)` plugin automatically adds `Content-Digest`
+(RFC 9530) on outgoing requests with a body. `verifyDigest(response)`
 validates an incoming response and throws `DigestMismatchError` on
 failure.
 
 ```ts
-import { withDigest, verifyDigest } from "misina/digest"
+import { createMisina } from "misina"
+import { digestAuth, verifyDigest } from "misina/digest"
 
-const api = withDigest(createMisina({ baseURL }), { algorithm: "sha-256" })
+const api = createMisina({ baseURL, use: [digestAuth({ algorithm: "sha-256" })] })
 const res = await api.post("/upload", body) // Content-Digest: sha-256=:...:
 
 await verifyDigest(res.raw) // throws DigestMismatchError on mismatch
@@ -943,7 +1036,8 @@ doesn't advertise `Accept-Ranges: bytes`. Resumable upload reissues
 ### misina/auth/oauth
 
 ```ts
-import { createPkcePair, exchangePkceCode, withJwtRefresh } from "misina/auth/oauth"
+import { createMisina } from "misina"
+import { createPkcePair, exchangePkceCode, jwtRefresh } from "misina/auth/oauth"
 
 // 1. PKCE flow
 const pair = await createPkcePair() // { verifier, challenge, method: 'S256' }
@@ -958,32 +1052,38 @@ const tokens = await exchangePkceCode(misina, {
 })
 
 // 2. Proactive refresh (peeks JWT exp, single-flight under load)
-const api = withJwtRefresh(misina, {
-  getToken: () => store.token,
-  refresh: async () => {
-    const t = await refreshTokens()
-    store.token = t.access_token
-    return t.access_token
-  },
-  expiryWindowMs: 30_000,
+const api = createMisina({
+  baseURL,
+  use: [
+    jwtRefresh({
+      getToken: () => store.token,
+      refresh: async () => {
+        const t = await refreshTokens()
+        store.token = t.access_token
+        return t.access_token
+      },
+      expiryWindowMs: 30_000,
+    }),
+  ],
 })
 ```
 
 ### misina/auth/sigv4
 
 ```ts
-import { withSigV4 } from "misina/auth/sigv4"
+import { createMisina } from "misina"
+import { sigv4 } from "misina/auth/sigv4"
 
-const api = withSigV4(
-  createMisina({
-    baseURL: "https://bedrock-runtime.us-east-1.amazonaws.com",
-  }),
-  {
-    service: "bedrock-runtime",
-    region: "us-east-1",
-    credentials: async () => fromEnvOrIam(), // any provider returning { accessKeyId, secretAccessKey, sessionToken? }
-  },
-)
+const api = createMisina({
+  baseURL: "https://bedrock-runtime.us-east-1.amazonaws.com",
+  use: [
+    sigv4({
+      service: "bedrock-runtime",
+      region: "us-east-1",
+      credentials: async () => fromEnvOrIam(), // any provider returning { accessKeyId, secretAccessKey, sessionToken? }
+    }),
+  ],
+})
 
 // Every request now carries Authorization: AWS4-HMAC-SHA256 ...,
 // x-amz-date, x-amz-content-sha256, and (when present) x-amz-security-token.
@@ -992,28 +1092,39 @@ const api = withSigV4(
 Streaming uploads: pass `unsignedPayload: true` to use
 `x-amz-content-sha256: UNSIGNED-PAYLOAD` instead of buffering the body
 to hash it. `signRequest(request, opts)` is exported separately for
-one-off signing without wrapping the misina instance.
+one-off signing without wiring the plugin.
 
 ### misina/auth/signed
 
 ```ts
-import { withMessageSignature } from "misina/auth/signed"
+import { createMisina } from "misina"
+import { messageSignature } from "misina/auth/signed"
 
 // 1. Asymmetric: Web Crypto Ed25519 keypair
 const pair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"])
-const api = withMessageSignature(createMisina({ baseURL }), {
-  keyId: "my-bot",
-  algorithm: "ed25519",
-  privateKey: pair.privateKey,
-  components: ["@method", "@target-uri", "@authority", "content-type", "content-digest"],
+const api = createMisina({
+  baseURL,
+  use: [
+    messageSignature({
+      keyId: "my-bot",
+      algorithm: "ed25519",
+      privateKey: pair.privateKey,
+      components: ["@method", "@target-uri", "@authority", "content-type", "content-digest"],
+    }),
+  ],
 })
 
 // 2. Shared secret: HMAC-SHA256 (raw Uint8Array works)
-const api2 = withMessageSignature(createMisina({ baseURL }), {
-  keyId: "shared",
-  algorithm: "hmac-sha256",
-  privateKey: new TextEncoder().encode(process.env.SHARED_SECRET!),
-  components: ["@method", "@target-uri"],
+const api2 = createMisina({
+  baseURL,
+  use: [
+    messageSignature({
+      keyId: "shared",
+      algorithm: "hmac-sha256",
+      privateKey: new TextEncoder().encode(process.env.SHARED_SECRET!),
+      components: ["@method", "@target-uri"],
+    }),
+  ],
 })
 ```
 
@@ -1035,13 +1146,19 @@ prevention).
 
 ```ts
 import { trace } from "@opentelemetry/api"
-import { withOtel } from "misina/otel"
+import { createMisina } from "misina"
+import { otel } from "misina/otel"
 
-const api = withOtel(createMisina({ baseURL }), {
-  tracer: trace.getTracer("my-service"),
-  // optional:
-  spanName: (req) => `http.${req.method.toLowerCase()} ${new URL(req.url).pathname}`,
-  attributes: { "deployment.environment": process.env.NODE_ENV },
+const api = createMisina({
+  baseURL,
+  use: [
+    otel({
+      tracer: trace.getTracer("my-service"),
+      // optional:
+      spanName: (req) => `http.${req.method.toLowerCase()} ${new URL(req.url).pathname}`,
+      attributes: { "deployment.environment": process.env.NODE_ENV },
+    }),
+  ],
 })
 ```
 
@@ -1051,7 +1168,7 @@ standard semconv attributes — `http.request.method`, `url.full`,
 on start; `http.response.status_code` on completion. Errors call
 `span.recordException(err)` and set status `ERROR`. `traceparent` is
 auto-injected from the active span context; pass
-`injectTraceparent: false` when `withTracing` is already in the chain
+`injectTraceparent: false` when `tracing()` is already in the chain
 to avoid double injection.
 
 Peer-dep duck-typed: anything matching the minimal `{ startSpan }`
@@ -1063,13 +1180,19 @@ memory exporter for tests, or your own wrapper. misina never imports
 
 ```ts
 import * as Sentry from "@sentry/browser"
-import { withSentry } from "misina/sentry"
+import { createMisina } from "misina"
+import { sentry } from "misina/sentry"
 
-const api = withSentry(createMisina({ baseURL }), {
-  Sentry,
-  captureLevel: "error", // 'all' | 'error' (skip 4xx, default) | '5xx'
-  redactHeaders: ["authorization", "cookie", "x-api-key"],
-  successBreadcrumb: true, // add a breadcrumb on every 2xx
+const api = createMisina({
+  baseURL,
+  use: [
+    sentry({
+      Sentry,
+      captureLevel: "error", // 'all' | 'error' (skip 4xx, default) | '5xx'
+      redactHeaders: ["authorization", "cookie", "x-api-key"],
+      successBreadcrumb: true, // add a breadcrumb on every 2xx
+    }),
+  ],
 })
 ```
 
@@ -1099,10 +1222,16 @@ actually ran.
 
 ### misina/graphql
 
-```ts
-import { withGraphql } from "misina/graphql"
+GraphQL doesn't fit the misina plugin shape (it returns a `GraphqlClient`,
+not a `Misina`). Use it as a sibling helper layered on top of a misina
+instance.
 
-const gql = withGraphql(createMisina({ baseURL }), {
+```ts
+import { createMisina } from "misina"
+import { createGraphqlClient } from "misina/graphql"
+
+const misina = createMisina({ baseURL })
+const gql = createGraphqlClient(misina, {
   endpoint: "/graphql",
   persistedQueries: true, // Apollo APQ (SHA-256, GET fallback for short queries)
 })
@@ -1370,7 +1499,7 @@ const api3 = createMisina({
 ```
 
 `durationMs` already accounts for retries; `error` is populated only
-on the failure branch. Pair with `withTracing` / `withOtel` when
+on the failure branch. Pair with `tracing()` / `otel()` when
 distributed-tracing context belongs in the same log line.
 
 ## Benchmarks

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { createMisina } from "../src/index.ts"
-import { MemoryCookieJar, withCookieJar } from "../src/cookie/index.ts"
+import { cookieJar, MemoryCookieJar } from "../src/cookie/index.ts"
 
-describe("withCookieJar — redirect persistence (undici #3784 parity)", () => {
+describe("cookieJar — redirect persistence (undici #3784 parity)", () => {
   it("captures Set-Cookie issued by an intermediate redirect hop", async () => {
     const jar = new MemoryCookieJar()
     let call = 0
@@ -29,7 +29,7 @@ describe("withCookieJar — redirect persistence (undici #3784 parity)", () => {
         })
       },
     }
-    const m = withCookieJar(createMisina({ driver, retry: 0 }), jar)
+    const m = createMisina({ driver, retry: 0, use: [cookieJar(jar)] })
     const result = await m.get<{ cookie: string }>("https://api.test/login")
     expect(result.data.cookie).toBe("session=abc123")
     // Jar persisted the cookie from the intermediate hop.
@@ -68,7 +68,7 @@ describe("withCookieJar — redirect persistence (undici #3784 parity)", () => {
         })
       },
     }
-    const m = withCookieJar(createMisina({ driver, retry: 0 }), jar)
+    const m = createMisina({ driver, retry: 0, use: [cookieJar(jar)] })
     const result = await m.get<{ cookie: string }>("https://api.test/one")
     // Both cookies sent on the third hop.
     expect(result.data.cookie).toContain("a=1")
@@ -85,7 +85,7 @@ describe("withCookieJar — redirect persistence (undici #3784 parity)", () => {
           headers: { "set-cookie": "session=zzz; Path=/" },
         }),
     }
-    const m = withCookieJar(createMisina({ driver, retry: 0 }), jar)
+    const m = createMisina({ driver, retry: 0, use: [cookieJar(jar)] })
     await m.get("https://api.test/")
     expect(await jar.getCookieString("https://api.test/")).toBe("session=zzz")
   })
