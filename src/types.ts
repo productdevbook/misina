@@ -266,6 +266,13 @@ export interface MisinaOptions {
   /** Allow https → http redirect. Default: false. */
   redirectAllowDowngrade?: boolean
   /**
+   * Header names to scan (in order) for the server-issued request id.
+   * The first non-empty value wins. Surfaced on `MisinaResponse.requestId`
+   * and `HTTPError.requestId`, included in error messages and toJSON.
+   * Default: `['x-request-id', 'request-id', 'x-correlation-id']`.
+   */
+  requestIdHeaders?: readonly string[]
+  /**
    * Custom JSON parser. Default: JSON.parse. Optional context (request +
    * response) lets advanced parsers route on URL or content-type
    * (matches ky [PR #849](https://github.com/sindresorhus/ky/pull/849)).
@@ -406,6 +413,7 @@ export interface MisinaResolvedOptions {
   redirectStripHeaders: string[] | undefined
   redirectMaxCount: number
   redirectAllowDowngrade: boolean
+  requestIdHeaders: readonly string[]
   throwHttpErrors: boolean
   validateResponse:
     | ((info: {
@@ -429,6 +437,12 @@ export interface MisinaResponse<T = unknown> {
   type: Response["type"]
   /** Wall-clock timings for the request lifecycle. */
   timings: ResponseTimings
+  /**
+   * Server-side request id, read from the first matching header. Default
+   * candidates: `x-request-id`, `request-id`, `x-correlation-id`. Configure
+   * via `requestIdHeaders`. Undefined when no candidate is present.
+   */
+  requestId: string | undefined
   raw: Response
 }
 
