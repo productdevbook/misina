@@ -203,7 +203,7 @@
     "bench": "pnpm build && node bench/run.mjs",
     "jsr:check": "npx jsr publish --dry-run --allow-dirty --allow-slow-types",
     "jsr:publish": "npx jsr publish --allow-slow-types",
-    "release": "pnpm test && pnpm build && pnpm bundle-budget && bumpp --commit --tag --push --all && pnpm jsr:publish",
+    "release": "pnpm test && pnpm build && pnpm bundle-budget && bumpp --commit --tag --push --all",
     "prepack": "pnpm build"
   },
   "devDependencies": {
