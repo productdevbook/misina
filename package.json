@@ -109,6 +109,10 @@
     "./breaker": {
       "types": "./dist/breaker/index.d.mts",
       "default": "./dist/breaker/index.mjs"
+    },
+    "./poll": {
+      "types": "./dist/poll/index.d.mts",
+      "default": "./dist/poll/index.mjs"
     }
   },
   "publishConfig": {

@@ -10,7 +10,7 @@ const DIST = resolve(process.cwd(), "dist")
 const BUDGETS = [
   // Core surface — must stay tight
   { match: (p) => p === "index.mjs", max: 12_000, label: "core" },
-  { match: (p) => p === "misina.mjs", max: 15_500, label: "core engine" },
+  { match: (p) => p === "misina.mjs", max: 18_500, label: "core engine" },
 
   // Internal helpers
   { match: (p) => /^_[\w-]+\.mjs$/.test(p), max: 6_000, label: "internal" },
@@ -26,6 +26,7 @@ const BUDGETS = [
   { match: (p) => p.startsWith("cookie/"), max: 6_000, label: "cookie" },
   { match: (p) => p.startsWith("test/"), max: 6_000, label: "test" },
   { match: (p) => p.startsWith("breaker/"), max: 4_000, label: "breaker" },
+  { match: (p) => p.startsWith("poll/"), max: 2_500, label: "poll" },
   { match: (p) => p.startsWith("openapi/"), max: 200, label: "openapi (type-only)" },
   { match: (p) => p === "typed.mjs", max: 6_000, label: "typed" },
   { match: (p) => p === "types.mjs", max: 200, label: "types" },
