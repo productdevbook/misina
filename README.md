@@ -121,12 +121,24 @@
 
 ## Install
 
+From npm:
+
 ```sh
 pnpm add misina
 # or
 npm install misina
 # or
 bun add misina
+```
+
+From [JSR](https://jsr.io/@productdevbook/misina):
+
+```sh
+deno add jsr:@productdevbook/misina
+# or
+bunx jsr add @productdevbook/misina
+# or
+npx jsr add @productdevbook/misina
 ```
 
 Requires Node ≥ 22.11 / Bun ≥ 1.2 / Deno ≥ 2.0 / Baseline 2024 browsers (Safari 17.4+, Chrome 116+, Firefox 124+). Uses native `AbortSignal.any`, `AbortSignal.timeout`, and `Headers.getSetCookie()` — no polyfills.

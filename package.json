@@ -193,7 +193,9 @@
     "typecheck": "tsgo --noEmit",
     "bundle-budget": "node scripts/bundle-budget.mjs",
     "bench": "pnpm build && node bench/run.mjs",
-    "release": "pnpm test && pnpm build && pnpm bundle-budget && bumpp --commit --tag --push --all",
+    "jsr:check": "npx jsr publish --dry-run --allow-dirty --allow-slow-types",
+    "jsr:publish": "npx jsr publish --allow-slow-types",
+    "release": "pnpm test && pnpm build && pnpm bundle-budget && bumpp --commit --tag --push --all && pnpm jsr:publish",
     "prepack": "pnpm build"
   },
   "devDependencies": {

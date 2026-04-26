@@ -1,0 +1,41 @@
+{
+  "$schema": "https://jsr.io/schema/config-file.v1.json",
+  "name": "@productdevbook/misina",
+  "version": "0.2.0",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts",
+    "./driver/fetch": "./src/driver/fetch.ts",
+    "./driver/mock": "./src/driver/mock.ts",
+    "./test": "./src/test/index.ts",
+    "./stream": "./src/stream/index.ts",
+    "./paginate": "./src/paginate/index.ts",
+    "./dedupe": "./src/dedupe/index.ts",
+    "./cache": "./src/cache/index.ts",
+    "./auth": "./src/auth/index.ts",
+    "./auth/oauth": "./src/auth/oauth.ts",
+    "./auth/sigv4": "./src/auth/sigv4.ts",
+    "./auth/signed": "./src/auth/signed.ts",
+    "./cookie": "./src/cookie/index.ts",
+    "./digest": "./src/digest/index.ts",
+    "./transfer": "./src/transfer/index.ts",
+    "./openapi": "./src/openapi/index.ts",
+    "./breaker": "./src/breaker/index.ts",
+    "./poll": "./src/poll/index.ts",
+    "./ratelimit": "./src/ratelimit/index.ts",
+    "./tracing": "./src/tracing/index.ts",
+    "./beacon": "./src/beacon/index.ts",
+    "./graphql": "./src/graphql/index.ts",
+    "./hedge": "./src/hedge/index.ts",
+    "./otel": "./src/otel/index.ts",
+    "./sentry": "./src/sentry/index.ts",
+    "./runtime/next": "./src/runtime/next/index.ts",
+    "./runtime/cloudflare": "./src/runtime/cloudflare/index.ts",
+    "./runtime/bun": "./src/runtime/bun/index.ts",
+    "./runtime/deno": "./src/runtime/deno/index.ts"
+  },
+  "publish": {
+    "include": ["src/**/*.ts", "README.md", "LICENSE", "jsr.json"],
+    "exclude": ["src/**/*.test.ts", "test/**"]
+  }
+}
