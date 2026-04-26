@@ -24,6 +24,9 @@ export { replaceOption } from "./_merge.ts"
 
 export { parseServerTiming } from "./_server_timing.ts"
 
+export { toFile } from "./_to_file.ts"
+export type { FileSource, ToFileOptions } from "./_to_file.ts"
+
 export {
   HTTPError,
   isHTTPError,

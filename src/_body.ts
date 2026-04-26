@@ -43,6 +43,17 @@ export function serializeBody(
     return body as BodyInit
   }
 
+  // Async iterables (including Node's Readable, async generators, and
+  // anything implementing Symbol.asyncIterator) → ReadableStream.from(...).
+  // Baseline 2024 across Node 22 / Bun / Deno / browsers; lib.dom hasn't
+  // typed ReadableStream.from yet, hence the cast.
+  if (body !== null && typeof body === "object" && Symbol.asyncIterator in (body as object)) {
+    type WithFrom = {
+      from(source: AsyncIterable<Uint8Array | string>): ReadableStream<Uint8Array>
+    }
+    return (ReadableStream as unknown as WithFrom).from(body as AsyncIterable<Uint8Array | string>)
+  }
+
   if (typeof body === "object") {
     // Refuse to silently JSON-stringify class instances that aren't plain
     // objects and don't define toJSON — that path used to swallow {} for
