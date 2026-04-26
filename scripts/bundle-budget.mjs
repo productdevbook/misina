@@ -27,6 +27,7 @@ const BUDGETS = [
   { match: (p) => p.startsWith("test/"), max: 6_000, label: "test" },
   { match: (p) => p.startsWith("breaker/"), max: 4_000, label: "breaker" },
   { match: (p) => p.startsWith("poll/"), max: 2_500, label: "poll" },
+  { match: (p) => p.startsWith("ratelimit/"), max: 2_500, label: "ratelimit" },
   { match: (p) => p.startsWith("openapi/"), max: 200, label: "openapi (type-only)" },
   { match: (p) => p === "typed.mjs", max: 6_000, label: "typed" },
   { match: (p) => p === "types.mjs", max: 200, label: "types" },
