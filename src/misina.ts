@@ -150,6 +150,13 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
         throw await runBeforeError(error, ctx)
       }
 
+      // Body-read budget: cap the time spent draining response.body once
+      // headers have arrived. Useful for slow-streaming servers that send
+      // the head fast but the body byte-by-byte.
+      if (options.bodyTimeout !== false && options.bodyTimeout > 0) {
+        response = wrapBodyTimeout(response, options.bodyTimeout)
+      }
+
       if (options.decompress !== false) {
         const formats = resolveDecompressFormats(options.decompress)
         if (formats.length > 0) response = maybeDecompress(response, formats)
@@ -442,6 +449,7 @@ function resolveOptions(
     paramsSerializer,
     baseURL,
     timeout: init.timeout ?? defaults.timeout ?? DEFAULT_TIMEOUT,
+    bodyTimeout: init.bodyTimeout ?? defaults.bodyTimeout ?? false,
     totalTimeout: init.totalTimeout ?? defaults.totalTimeout ?? false,
     signal: init.signal ?? defaults.signal,
     responseType: init.responseType ?? defaults.responseType,
@@ -718,6 +726,62 @@ function hasHeader(headers: Record<string, string>, name: string): boolean {
     if (k.toLowerCase() === lower) return true
   }
   return false
+}
+
+/**
+ * Wrap a Response so that reading the body is capped by an additional
+ * timeout. The clock starts when this function runs (i.e. just after
+ * headers arrived). Stream stalls past `ms` raise a TimeoutError.
+ */
+function wrapBodyTimeout(response: Response, ms: number): Response {
+  const body = response.body
+  if (!body) return response
+
+  const timeout = AbortSignal.timeout(ms)
+  const wrapped = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const reader = body.getReader()
+      const onAbort = (): void => {
+        try {
+          controller.error(new TimeoutError(ms, { cause: timeout.reason }))
+        } catch {
+          // controller may already be closed
+        }
+        reader.cancel().catch(() => {})
+      }
+      if (timeout.aborted) {
+        onAbort()
+        return
+      }
+      timeout.addEventListener("abort", onAbort, { once: true })
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          controller.enqueue(value)
+        }
+        controller.close()
+      } catch (err) {
+        controller.error(err)
+      } finally {
+        timeout.removeEventListener("abort", onAbort)
+        try {
+          reader.releaseLock()
+        } catch {
+          // already released
+        }
+      }
+    },
+    cancel(reason) {
+      return body.cancel(reason)
+    },
+  })
+
+  return new Response(wrapped, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  })
 }
 
 function abortReasonAsError(signal: AbortSignal): Error {

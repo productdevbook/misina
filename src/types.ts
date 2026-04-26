@@ -213,6 +213,14 @@ export interface MisinaOptions {
   headers?: HeadersInit | Record<string, string | undefined>
   /** Per-attempt timeout in milliseconds. Default: 10_000. `false` to disable. */
   timeout?: number | false
+  /**
+   * Separate budget for *reading the response body* after headers have
+   * arrived. Useful when servers send headers fast but stream the body
+   * slowly — the per-attempt `timeout` covers TTFB; `bodyTimeout` caps
+   * the read phase. `false` (default) → no separate cap; the per-attempt
+   * timeout still applies overall.
+   */
+  bodyTimeout?: number | false
   /** Wall-clock deadline across all attempts (incl. retry delays). Default: false (disabled). */
   totalTimeout?: number | false
   signal?: AbortSignal
@@ -370,6 +378,7 @@ export interface MisinaResolvedOptions {
   paramsSerializer: ParamsSerializer | undefined
   baseURL?: string
   timeout: number | false
+  bodyTimeout: number | false
   totalTimeout: number | false
   signal?: AbortSignal
   responseType?: ResponseType
