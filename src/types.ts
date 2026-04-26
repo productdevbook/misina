@@ -450,7 +450,18 @@ export interface MisinaResponse<T = unknown> {
    * via `requestIdHeaders`. Undefined when no candidate is present.
    */
   requestId: string | undefined
+  /**
+   * Parsed `Server-Timing` header (W3C). Empty array when the header is
+   * absent. Useful for surfacing backend latency breakdowns in telemetry.
+   */
+  serverTimings: ServerTimingEntry[]
   raw: Response
+}
+
+export interface ServerTimingEntry {
+  name: string
+  dur: number | undefined
+  desc: string | undefined
 }
 
 export interface ResponseTimings {

@@ -19,6 +19,8 @@ export { defineDriver } from "./driver/_define.ts"
 
 export { replaceOption } from "./_merge.ts"
 
+export { parseServerTiming } from "./_server_timing.ts"
+
 export {
   HTTPError,
   isHTTPError,
@@ -64,6 +66,7 @@ export type {
   ResolvedRetry,
   ResponseType,
   RetryOptions,
+  ServerTimingEntry,
 } from "./types.ts"
 
 export type { EndpointDef, EndpointsMap, StandardSchemaV1, TypedMisina } from "./typed.ts"

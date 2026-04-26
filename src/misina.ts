@@ -12,6 +12,7 @@ import { enforceMaxResponseSize } from "./_max_size.ts"
 import { progressDownload, progressUpload, supportsRequestStreams } from "./_progress.ts"
 import { followRedirects } from "./_redirect.ts"
 import { readRequestId } from "./_request_id.ts"
+import { parseServerTiming } from "./_server_timing.ts"
 import {
   calculateRetryDelay,
   delayMs,
@@ -294,6 +295,7 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
         total: end - ctx.startedAt,
       },
       requestId: readRequestId(response.headers, ctx.options.requestIdHeaders),
+      serverTimings: parseServerTiming(response.headers.get("server-timing")),
       raw: response,
     }
   }
@@ -374,6 +376,7 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
           requestId:
             (error as { requestId?: string }).requestId ??
             readRequestId(response.headers, ["x-request-id", "request-id", "x-correlation-id"]),
+          serverTimings: parseServerTiming(response.headers.get("server-timing")),
           raw: response,
         }
       }
