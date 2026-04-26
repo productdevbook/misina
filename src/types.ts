@@ -1,3 +1,5 @@
+import type { HTTPError } from "./errors/http.ts"
+
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS" | "QUERY"
 
 export type ResponseType = "json" | "text" | "arrayBuffer" | "blob" | "stream"
@@ -385,15 +387,15 @@ export interface ResponseTimings {
 
 export type CatchMatcher = number | number[] | string | ((error: unknown) => boolean)
 
-export interface MisinaResponsePromise<T> extends Promise<MisinaResponse<T>> {
+export interface MisinaResponsePromise<T, E = unknown> extends Promise<MisinaResponse<T>> {
   /**
    * Recover from specific errors. Matcher can be a status code, an array of
    * status codes, an error class name (string), or a predicate.
    */
   onError: <U = MisinaResponse<T>>(
     matcher: CatchMatcher,
-    handler: (error: Error) => U | Promise<U>,
-  ) => MisinaResponsePromise<T> & Promise<MisinaResponse<T> | U>
+    handler: (error: HTTPError<E> | Error) => U | Promise<U>,
+  ) => MisinaResponsePromise<T, E> & Promise<MisinaResponse<T> | U>
 }
 
 export interface Misina {
@@ -405,36 +407,51 @@ export interface Misina {
    * Function form receives the parent defaults so child can read them.
    */
   extend: (defaults: MisinaOptions | ((parent: MisinaOptions) => MisinaOptions)) => Misina
-  request: <T = unknown>(input: string, init?: MisinaRequestInit) => MisinaResponsePromise<T>
-  get: <T = unknown>(url: string, init?: MisinaRequestInit) => MisinaResponsePromise<T>
-  post: <T = unknown>(
+  request: <T = unknown, E = unknown>(
+    input: string,
+    init?: MisinaRequestInit,
+  ) => MisinaResponsePromise<T, E>
+  get: <T = unknown, E = unknown>(
+    url: string,
+    init?: MisinaRequestInit,
+  ) => MisinaResponsePromise<T, E>
+  post: <T = unknown, E = unknown>(
     url: string,
     body?: unknown,
     init?: MisinaRequestInit,
-  ) => MisinaResponsePromise<T>
-  put: <T = unknown>(
+  ) => MisinaResponsePromise<T, E>
+  put: <T = unknown, E = unknown>(
     url: string,
     body?: unknown,
     init?: MisinaRequestInit,
-  ) => MisinaResponsePromise<T>
-  patch: <T = unknown>(
+  ) => MisinaResponsePromise<T, E>
+  patch: <T = unknown, E = unknown>(
     url: string,
     body?: unknown,
     init?: MisinaRequestInit,
-  ) => MisinaResponsePromise<T>
-  delete: <T = unknown>(url: string, init?: MisinaRequestInit) => MisinaResponsePromise<T>
-  head: <T = unknown>(url: string, init?: MisinaRequestInit) => MisinaResponsePromise<T>
-  options: <T = unknown>(url: string, init?: MisinaRequestInit) => MisinaResponsePromise<T>
+  ) => MisinaResponsePromise<T, E>
+  delete: <T = unknown, E = unknown>(
+    url: string,
+    init?: MisinaRequestInit,
+  ) => MisinaResponsePromise<T, E>
+  head: <T = unknown, E = unknown>(
+    url: string,
+    init?: MisinaRequestInit,
+  ) => MisinaResponsePromise<T, E>
+  options: <T = unknown, E = unknown>(
+    url: string,
+    init?: MisinaRequestInit,
+  ) => MisinaResponsePromise<T, E>
   /**
    * HTTP `QUERY` method (IETF draft-ietf-httpbis-safe-method-w-body) — a safe,
    * idempotent verb that carries a request body. Useful for complex search
    * filters that don't fit cleanly in a query string.
    */
-  query: <T = unknown>(
+  query: <T = unknown, E = unknown>(
     url: string,
     body?: unknown,
     init?: MisinaRequestInit,
-  ) => MisinaResponsePromise<T>
+  ) => MisinaResponsePromise<T, E>
 }
 
 /**
