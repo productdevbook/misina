@@ -102,6 +102,10 @@
       "types": "./dist/cookie/index.d.mts",
       "default": "./dist/cookie/index.mjs"
     },
+    "./digest": {
+      "types": "./dist/digest/index.d.mts",
+      "default": "./dist/digest/index.mjs"
+    },
     "./openapi": {
       "types": "./dist/openapi/index.d.mts",
       "default": "./dist/openapi/index.mjs"
