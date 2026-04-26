@@ -1,3 +1,4 @@
+import { isProblemJsonContentType } from "../_content_type.ts"
 import { MisinaError } from "./base.ts"
 
 /**
@@ -64,10 +65,8 @@ export class HTTPError<T = unknown> extends MisinaError {
 }
 
 function extractProblem(response: Response, data: unknown): ProblemDetails | undefined {
-  const ct = response.headers.get("content-type") ?? ""
-  // Match application/problem+json (RFC 9457) and any vendor variant ending
-  // in +problem+json (rare but legal per RFC 6839 structured-syntax suffix).
-  if (!/^application\/problem\+json(;.*)?$/i.test(ct)) return undefined
+  const ct = response.headers.get("content-type")
+  if (!isProblemJsonContentType(ct)) return undefined
   if (!data || typeof data !== "object") return undefined
   return data as ProblemDetails
 }

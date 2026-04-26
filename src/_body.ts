@@ -1,3 +1,5 @@
+import { isJsonContentType } from "./_content_type.ts"
+
 /**
  * Decide if a method may carry a body. Used to gate body serialization.
  *
@@ -90,8 +92,6 @@ export function isBodylessResponse(response: Response, method: string): boolean 
   return false
 }
 
-const JSON_RE = /^application\/(?:[\w!#$%&*.^`~-]*\+)?json(;.+)?$/i
-
 export async function parseResponseBody(
   response: Response,
   method: string,
@@ -113,7 +113,7 @@ export async function parseResponseBody(
   if (responseType === "arrayBuffer") return response.arrayBuffer()
 
   const ct = response.headers.get("content-type") ?? ""
-  if (responseType === "json" || JSON_RE.test(ct)) {
+  if (responseType === "json" || isJsonContentType(ct)) {
     const text = await response.text()
     if (text === "") return undefined
     return parseJson(text, request ? { request, response } : undefined)
