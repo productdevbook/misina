@@ -2,9 +2,16 @@ import { MisinaError } from "./base.ts"
 
 export class NetworkError extends MisinaError {
   override readonly name = "NetworkError"
+  /**
+   * Response object when the network failure happened mid-stream after
+   * headers had already arrived. `undefined` for pre-connection failures
+   * (DNS, TCP refuse, TLS) where no response was ever produced.
+   */
+  readonly response: Response | undefined
 
-  constructor(message: string, options?: { cause?: unknown }) {
+  constructor(message: string, options?: { cause?: unknown; response?: Response }) {
     super(message, options)
+    this.response = options?.response
   }
 }
 

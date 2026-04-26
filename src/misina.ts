@@ -23,7 +23,13 @@ import {
 import { composeSignals, isOurTimeoutAbort, timeoutSignal } from "./_signal.ts"
 import { appendQuery, resolveUrl } from "./_url.ts"
 import fetchDriverFactory from "./driver/fetch.ts"
-import { HTTPError, isRawNetworkError, NetworkError, TimeoutError } from "./errors/index.ts"
+import {
+  HTTPError,
+  isRawNetworkError,
+  MisinaError,
+  NetworkError,
+  TimeoutError,
+} from "./errors/index.ts"
 import type {
   HttpMethod,
   Misina,
@@ -249,16 +255,33 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
     // Error responses get a parse-tolerant path: a malformed JSON 500 should
     // still surface as HTTPError(status=500, data=<text>), not a SyntaxError
     // that buries the real failure.
-    const data =
-      !response.ok && options.throwHttpErrors
-        ? await parseResponseBodyTolerant(response, options, ctx)
-        : await parseResponseBody(
-            response,
-            options.method,
-            options.parseJson,
-            options.responseType,
-            ctx.request,
-          )
+    let data: unknown
+    try {
+      data =
+        !response.ok && options.throwHttpErrors
+          ? await parseResponseBodyTolerant(response, options, ctx)
+          : await parseResponseBody(
+              response,
+              options.method,
+              options.parseJson,
+              options.responseType,
+              ctx.request,
+            )
+    } catch (cause) {
+      // Body read failed mid-stream (abort, connection drop, decoder error).
+      // Preserve the response object so callers can still inspect status,
+      // headers, and request id (axios#6935 — they lose response on the same path).
+      // Misina-shaped errors (TimeoutError, ResponseTooLargeError, etc.) are
+      // rethrown as-is so type guards keep working.
+      if (cause instanceof MisinaError) {
+        throw await runBeforeError(cause, ctx)
+      }
+      const wrapped = new NetworkError(
+        cause instanceof Error ? cause.message : "Body read failed",
+        { cause, response },
+      )
+      throw await runBeforeError(wrapped, ctx)
+    }
 
     if (options.validateResponse) {
       const verdict = await options.validateResponse({
