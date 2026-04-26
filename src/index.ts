@@ -75,4 +75,11 @@ export type {
   ServerTimingEntry,
 } from "./types.ts"
 
-export type { EndpointDef, EndpointsMap, StandardSchemaV1, TypedMisina } from "./typed.ts"
+export type {
+  EndpointDef,
+  EndpointsMap,
+  StandardIssue,
+  StandardPathItem,
+  StandardSchemaV1,
+  TypedMisina,
+} from "./typed.ts"

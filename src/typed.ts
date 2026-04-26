@@ -210,15 +210,29 @@ export async function validateSchema<T>(
   return (result as { value: T }).value
 }
 
-function formatSchemaMessage(
-  issues: ReadonlyArray<{ message: string; path?: ReadonlyArray<PropertyKey> }>,
-): string {
+function formatSchemaMessage(issues: ReadonlyArray<StandardIssue>): string {
   if (issues.length === 0) return "Schema validation failed"
   const head = issues[0]
   if (!head) return "Schema validation failed"
-  const where = head.path && head.path.length > 0 ? ` at ${head.path.join(".")}` : ""
+  const where =
+    head.path && head.path.length > 0
+      ? ` at ${head.path.map((p) => (typeof p === "object" ? String(p.key) : String(p))).join(".")}`
+      : ""
   const more = issues.length > 1 ? ` (+${issues.length - 1} more)` : ""
   return `Schema validation failed${where}: ${head.message}${more}`
+}
+
+/**
+ * Per the [Standard Schema v1 spec](https://standardschema.dev), an
+ * issue's `path` is a sequence of either bare PropertyKeys or
+ * `{ key: PropertyKey }` objects (so vendors can attach extra metadata
+ * like `type` for tuple/intersection/union narrowing).
+ */
+export type StandardPathItem = PropertyKey | { key: PropertyKey }
+
+export interface StandardIssue {
+  message: string
+  path?: ReadonlyArray<StandardPathItem>
 }
 
 export interface StandardSchemaV1<I = unknown, O = unknown> {
@@ -229,23 +243,17 @@ export interface StandardSchemaV1<I = unknown, O = unknown> {
       value: unknown,
     ) =>
       | { value: O; issues?: undefined }
-      | { issues: ReadonlyArray<{ message: string; path?: ReadonlyArray<PropertyKey> }> }
-      | Promise<
-          | { value: O; issues?: undefined }
-          | { issues: ReadonlyArray<{ message: string; path?: ReadonlyArray<PropertyKey> }> }
-        >
+      | { issues: ReadonlyArray<StandardIssue> }
+      | Promise<{ value: O; issues?: undefined } | { issues: ReadonlyArray<StandardIssue> }>
     types?: { input: I; output: O }
   }
 }
 
 export class SchemaValidationError extends Error {
   override readonly name = "SchemaValidationError"
-  readonly issues: ReadonlyArray<{ message: string; path?: ReadonlyArray<PropertyKey> }>
+  readonly issues: ReadonlyArray<StandardIssue>
 
-  constructor(
-    message: string,
-    issues: ReadonlyArray<{ message: string; path?: ReadonlyArray<PropertyKey> }>,
-  ) {
+  constructor(message: string, issues: ReadonlyArray<StandardIssue>) {
     super(message)
     this.issues = issues
   }
