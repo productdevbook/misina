@@ -8,8 +8,10 @@ import {
   detectSupportedFormats,
   maybeDecompress,
 } from "./_decompress.ts"
+import { enforceMaxResponseSize } from "./_max_size.ts"
 import { progressDownload, progressUpload, supportsRequestStreams } from "./_progress.ts"
 import { followRedirects } from "./_redirect.ts"
+import { readRequestId } from "./_request_id.ts"
 import {
   calculateRetryDelay,
   delayMs,
@@ -162,6 +164,10 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
         if (formats.length > 0) response = maybeDecompress(response, formats)
       }
 
+      if (options.maxResponseSize !== false) {
+        response = enforceMaxResponseSize(response, options.maxResponseSize)
+      }
+
       if (options.onDownloadProgress) {
         response = progressDownload(
           response,
@@ -192,7 +198,7 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
           options.responseType,
           ctx.request,
         )
-        const httpError = new HTTPError(response, ctx.request, data)
+        const httpError = new HTTPError(response, ctx.request, data, options.requestIdHeaders)
         ctx.error = httpError
         if (await passesShouldRetry(retry, ctx)) {
           lastError = httpError
@@ -264,11 +270,11 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
         throw await runBeforeError(verdict, ctx)
       }
       if (verdict === false) {
-        const error = new HTTPError(response, ctx.request, data)
+        const error = new HTTPError(response, ctx.request, data, options.requestIdHeaders)
         throw await runBeforeError(error, ctx)
       }
     } else if (options.throwHttpErrors && !response.ok) {
-      const error = new HTTPError(response, ctx.request, data)
+      const error = new HTTPError(response, ctx.request, data, options.requestIdHeaders)
       throw await runBeforeError(error, ctx)
     }
 
@@ -287,6 +293,7 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
         end,
         total: end - ctx.startedAt,
       },
+      requestId: readRequestId(response.headers, ctx.options.requestIdHeaders),
       raw: response,
     }
   }
@@ -362,6 +369,11 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
           url: response.url,
           type: response.type,
           timings: { start: 0, responseStart: 0, end: 0, total: 0 },
+          // HTTPError already carries requestId; use it. Otherwise fall back
+          // to default scan order (this synthesized response is for safe()).
+          requestId:
+            (error as { requestId?: string }).requestId ??
+            readRequestId(response.headers, ["x-request-id", "request-id", "x-correlation-id"]),
           raw: response,
         }
       }
@@ -471,6 +483,9 @@ function resolveOptions(
     redirect: init.redirect ?? defaults.redirect ?? "manual",
     redirectSafeHeaders: init.redirectSafeHeaders ?? defaults.redirectSafeHeaders,
     redirectStripHeaders: init.redirectStripHeaders ?? defaults.redirectStripHeaders,
+    requestIdHeaders: init.requestIdHeaders ??
+      defaults.requestIdHeaders ?? ["x-request-id", "request-id", "x-correlation-id"],
+    maxResponseSize: init.maxResponseSize ?? defaults.maxResponseSize ?? false,
     redirectMaxCount: init.redirectMaxCount ?? defaults.redirectMaxCount ?? 5,
     redirectAllowDowngrade: init.redirectAllowDowngrade ?? defaults.redirectAllowDowngrade ?? false,
     throwHttpErrors: init.throwHttpErrors ?? defaults.throwHttpErrors ?? true,

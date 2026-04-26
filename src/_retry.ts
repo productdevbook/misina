@@ -63,6 +63,13 @@ export function calculateRetryDelay(
 }
 
 function parseRetryAfter(response: Response): number | null {
+  // OpenAI and Anthropic SDKs honor `retry-after-ms` (sub-second precision)
+  // ahead of the standard `Retry-After` header. Check it first.
+  const ms = response.headers.get("retry-after-ms")
+  if (ms != null) {
+    const t = ms.trim()
+    if (/^\d+(?:\.\d+)?$/.test(t)) return Number(t)
+  }
   const raw = response.headers.get("retry-after") ?? response.headers.get("ratelimit-reset")
   if (raw == null) return null
   const value = raw.trim()
@@ -72,6 +79,20 @@ function parseRetryAfter(response: Response): number | null {
   if (/^\d+(?:\.\d+)?$/.test(value)) return Number(value) * 1000
   const date = Date.parse(value)
   if (!Number.isNaN(date)) return Math.max(0, date - Date.now())
+  return null
+}
+
+/**
+ * Read the `x-should-retry` server hint. `'true'` forces retry; `'false'`
+ * forbids it. Anything else (including absence) returns null and lets
+ * default policy decide. OpenAI and Anthropic SDKs honor this.
+ */
+export function readXShouldRetry(response: Response): boolean | null {
+  const v = response.headers.get("x-should-retry")
+  if (v == null) return null
+  const t = v.trim().toLowerCase()
+  if (t === "true") return true
+  if (t === "false") return false
   return null
 }
 
@@ -87,7 +108,12 @@ export function shouldRetryHttpError(
   options: MisinaResolvedOptions,
   response: Response,
 ): boolean {
+  // x-should-retry overrides default policy in either direction, but only
+  // for methods that retry can act on at all.
   if (!retry.methods.includes(options.method)) return false
+  const hint = readXShouldRetry(response)
+  if (hint === false) return false
+  if (hint === true) return true
   return retry.statusCodes.includes(response.status)
 }
 

@@ -1,4 +1,8 @@
+import { isProblemJsonContentType } from "../_content_type.ts"
+import { readRequestId } from "../_request_id.ts"
 import { MisinaError } from "./base.ts"
+
+const DEFAULT_REQUEST_ID_HEADERS = ["x-request-id", "request-id", "x-correlation-id"] as const
 
 /**
  * RFC 9457 problem details (formerly RFC 7807). Servers signal application
@@ -32,16 +36,30 @@ export class HTTPError<T = unknown> extends MisinaError {
    * otherwise.
    */
   readonly problem: ProblemDetails | undefined
+  /**
+   * Server-issued request id, read from response headers. Surfaced in the
+   * error message as `[req: <id>]` and included in toJSON. Default scan
+   * order: `x-request-id`, `request-id`, `x-correlation-id`. Override via
+   * `requestIdHeaders` on `createMisina`.
+   */
+  readonly requestId: string | undefined
 
-  constructor(response: Response, request: Request, data: T) {
+  constructor(
+    response: Response,
+    request: Request,
+    data: T,
+    requestIdHeaders: readonly string[] = DEFAULT_REQUEST_ID_HEADERS,
+  ) {
     const problem = extractProblem(response, data)
-    super(buildMessage(response, problem))
+    const requestId = readRequestId(response.headers, requestIdHeaders)
+    super(buildMessage(response, problem, requestId))
     this.status = response.status
     this.statusText = response.statusText
     this.response = response
     this.request = request
     this.data = data
     this.problem = problem
+    this.requestId = requestId
   }
 
   override toJSON(): Record<string, unknown> {
@@ -59,23 +77,26 @@ export class HTTPError<T = unknown> extends MisinaError {
       },
       data: this.data,
       problem: this.problem,
+      requestId: this.requestId,
     }
   }
 }
 
 function extractProblem(response: Response, data: unknown): ProblemDetails | undefined {
-  const ct = response.headers.get("content-type") ?? ""
-  // Match application/problem+json (RFC 9457) and any vendor variant ending
-  // in +problem+json (rare but legal per RFC 6839 structured-syntax suffix).
-  if (!/^application\/problem\+json(;.*)?$/i.test(ct)) return undefined
+  const ct = response.headers.get("content-type")
+  if (!isProblemJsonContentType(ct)) return undefined
   if (!data || typeof data !== "object") return undefined
   return data as ProblemDetails
 }
 
-function buildMessage(response: Response, problem: ProblemDetails | undefined): string {
+function buildMessage(
+  response: Response,
+  problem: ProblemDetails | undefined,
+  requestId: string | undefined,
+): string {
   const base = `Request failed with status ${response.status} ${response.statusText}`
-  if (!problem) return base
   // Prefer detail, fall back to title — both are spec-encouraged.
-  const blurb = problem.detail ?? problem.title
-  return blurb ? `${base}: ${blurb}` : base
+  const blurb = problem ? (problem.detail ?? problem.title) : undefined
+  const main = blurb ? `${base}: ${blurb}` : base
+  return requestId ? `${main} [req: ${requestId}]` : main
 }
