@@ -8,6 +8,9 @@ import ky from "ky"
 import { ofetch } from "ofetch"
 
 import { createMisina, HTTPError } from "../dist/index.mjs"
+import { bearer } from "../dist/auth/index.mjs"
+import { breaker } from "../dist/breaker/index.mjs"
+import { tracing } from "../dist/tracing/index.mjs"
 import { startServer } from "./server.mjs"
 
 const server = await startServer()
@@ -26,6 +29,19 @@ const misinaRetry = createMisina({
   retry: { limit: 3, delay: () => 1, retryOnNetworkError: true },
 })
 
+// Plugin scenarios. Each is built once outside the bench loop so we
+// only measure dispatch cost, not factory cost.
+const misinaOnePlugin = createMisina({
+  baseURL: BASE,
+  retry: 0,
+  use: [bearer("token")],
+})
+const misinaThreePlugins = createMisina({
+  baseURL: BASE,
+  retry: 0,
+  use: [bearer("token"), tracing(), breaker({ failureThreshold: 100 })],
+})
+
 // Warm DNS / TLS / V8 inlining so the first sample isn't an outlier.
 await Promise.all([
   fetch(`${BASE}/users/1`).then((r) => r.text()),
@@ -33,6 +49,8 @@ await Promise.all([
   ky.get(`${BASE}/users/1`).text(),
   axios.get(`${BASE}/users/1`),
   misina.get("/users/1"),
+  misinaOnePlugin.get("/users/1"),
+  misinaThreePlugins.get("/users/1"),
 ])
 
 group("steady-state GET (200 OK, JSON parse)", () => {
@@ -87,6 +105,18 @@ group("hooks overhead (no hooks vs 5 hooks)", () => {
   })
 })
 
+group("plugin overhead (no plugins / 1 hook plugin / 3 plugins inc. wrapping)", () => {
+  bench("misina — no plugins", async () => {
+    await misina.get("/users/1")
+  })
+  bench("misina — bearer", async () => {
+    await misinaOnePlugin.get("/users/1")
+  })
+  bench("misina — bearer + tracing + breaker", async () => {
+    await misinaThreePlugins.get("/users/1")
+  })
+})
+
 group("retry on 503 → 200", () => {
   bench("misina — retry 1× then 200", async () => {
     const key = `bench-${Math.random()}`
@@ -101,6 +131,15 @@ group("retry on 503 → 200", () => {
 group("createMisina cold start", () => {
   bench("createMisina()", () => {
     createMisina({ baseURL: BASE })
+  })
+  bench("createMisina({ use: [bearer] })", () => {
+    createMisina({ baseURL: BASE, use: [bearer("token")] })
+  })
+  bench("createMisina({ use: [bearer, tracing, breaker] })", () => {
+    createMisina({
+      baseURL: BASE,
+      use: [bearer("token"), tracing(), breaker({ failureThreshold: 100 })],
+    })
   })
 })
 
