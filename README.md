@@ -291,6 +291,32 @@ createMisina({ retry: false })
 
 POST is **not retried** by default (idempotency).
 
+#### Region failover (retry to a different host)
+
+`beforeRetry` may return a `Request` to replace the URL on the next
+attempt — useful for multi-region inference, alternative endpoints,
+fallback DNS, etc. The `attempt` counter is 1-indexed for retries.
+
+```ts
+const REGIONS = [
+  "https://us-east.example.com",
+  "https://us-west.example.com",
+  "https://eu.example.com",
+]
+
+createMisina({
+  retry: { limit: 2, statusCodes: [502, 503, 504] },
+  hooks: {
+    beforeRetry: ({ request, attempt }) => {
+      const next = REGIONS[attempt % REGIONS.length]
+      const u = new URL(request.url)
+      u.host = new URL(next).host
+      return new Request(u.toString(), request)
+    },
+  },
+})
+```
+
 ### Errors
 
 ```ts
