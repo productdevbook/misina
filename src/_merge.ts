@@ -88,6 +88,7 @@ function mergeHookConfigs(a: MisinaHooks | undefined, b: MisinaHooks | undefined
     beforeRedirect: concat(a.beforeRedirect, b.beforeRedirect),
     afterResponse: concat(a.afterResponse, b.afterResponse),
     beforeError: concat(a.beforeError, b.beforeError),
+    onComplete: concat(a.onComplete, b.onComplete),
   }
 }
 

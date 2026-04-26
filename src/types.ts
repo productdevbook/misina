@@ -81,6 +81,22 @@ export type BeforeRedirectHook = (info: {
  */
 export type BeforeErrorHook = (error: Error, ctx: MisinaContext) => Error | Promise<Error>
 
+/**
+ * Terminal-state hook — fires exactly once per logical call after retries
+ * and redirects, with either `response` or `error` populated. Useful for
+ * logging, metrics, distributed tracing.
+ */
+export type OnCompleteHook = (info: CompletionContext) => void | Promise<void>
+
+export interface CompletionContext {
+  request: Request
+  response: Response | undefined
+  error: Error | undefined
+  durationMs: number
+  attempt: number
+  options: MisinaResolvedOptions
+}
+
 export interface RetryOptions {
   /** Max retry attempts. Default: 2. */
   limit?: number
@@ -124,6 +140,7 @@ export interface MisinaHooks {
   beforeRedirect?: MaybeArray<BeforeRedirectHook>
   afterResponse?: MaybeArray<AfterResponseHook>
   beforeError?: MaybeArray<BeforeErrorHook>
+  onComplete?: MaybeArray<OnCompleteHook>
 }
 
 /** Internal: hooks normalized into arrays after defaults+per-request merge. */
@@ -134,6 +151,7 @@ export interface ResolvedHooks {
   beforeRedirect: BeforeRedirectHook[]
   afterResponse: AfterResponseHook[]
   beforeError: BeforeErrorHook[]
+  onComplete: OnCompleteHook[]
 }
 
 export interface MisinaOptions {

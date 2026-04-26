@@ -244,6 +244,7 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
     }
 
     const end = performance.now()
+    await runOnComplete(ctx, response, undefined, end)
     return {
       data: data as T,
       status: response.status,
@@ -266,7 +267,29 @@ export function createMisina(defaults: MisinaOptions = {}): Misina {
     for (const hook of ctx.options.hooks.beforeError) {
       current = await hook(current, ctx)
     }
+    await runOnComplete(ctx, ctx.response, current, performance.now())
     return current
+  }
+
+  async function runOnComplete(
+    ctx: MisinaContext,
+    response: Response | undefined,
+    error: Error | undefined,
+    endedAt: number,
+  ): Promise<void> {
+    const hooks = ctx.options.hooks.onComplete
+    if (hooks.length === 0) return
+    const info = {
+      request: ctx.request,
+      response,
+      error,
+      durationMs: endedAt - ctx.startedAt,
+      attempt: ctx.attempt,
+      options: ctx.options,
+    }
+    for (const hook of hooks) {
+      await hook(info)
+    }
   }
 
   function callable<T>(input: string, init: MisinaRequestInit): MisinaResponsePromise<T> {

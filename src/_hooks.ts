@@ -17,5 +17,6 @@ export function mergeHooks(a: MisinaHooks | undefined, b: MisinaHooks | undefine
     beforeRedirect: [...toArray(a?.beforeRedirect), ...toArray(b?.beforeRedirect)],
     afterResponse: [...toArray(a?.afterResponse), ...toArray(b?.afterResponse)],
     beforeError: [...toArray(a?.beforeError), ...toArray(b?.beforeError)],
+    onComplete: [...toArray(a?.onComplete), ...toArray(b?.onComplete)],
   }
 }
