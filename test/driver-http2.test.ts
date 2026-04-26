@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import type { Socket } from "node:net"
 import { createServer, type Http2Server, type ServerHttp2Stream } from "node:http2"
 import { createMisina } from "../src/index.ts"
 import { http2Driver } from "../src/driver/http2.ts"
@@ -6,6 +7,11 @@ import { http2Driver } from "../src/driver/http2.ts"
 let server: Http2Server
 let baseUrl: string
 let requestsSeen = 0
+// Track every accepted socket. `Http2Server.close()` waits for every
+// open connection to drain, and `closeAllConnections()` lives on
+// `http.Server` only — not `http2.Http2Server`. We destroy sockets
+// manually on teardown so the close callback fires immediately.
+const sockets = new Set<Socket>()
 const drivers: Array<{ dispose: () => Promise<void> }> = []
 function track<T extends { dispose: () => Promise<void> }>(driver: T): T {
   drivers.push(driver)
@@ -15,6 +21,10 @@ function track<T extends { dispose: () => Promise<void> }>(driver: T): T {
 beforeAll(async () => {
   requestsSeen = 0
   server = createServer()
+  server.on("connection", (socket: Socket) => {
+    sockets.add(socket)
+    socket.on("close", () => sockets.delete(socket))
+  })
   server.on("stream", (stream: ServerHttp2Stream, headers) => {
     requestsSeen++
     const path = (headers[":path"] as string) ?? "/"
@@ -46,13 +56,15 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  // Tear down every client session first so the server's `close()`
-  // isn't blocked waiting for half-open sockets to drain.
+  // Tear down every client session first.
   await Promise.all(drivers.map((d) => d.dispose().catch(() => undefined)))
   drivers.length = 0
-  // Force-close any lingering sockets (Node ≥ 18.2). Falls back to a
-  // plain `close()` on older runtimes that don't have it.
-  ;(server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.()
+  // Destroy every socket we ever accepted. `Http2Server.close()` waits
+  // on open sockets and `closeAllConnections()` is `http.Server`-only,
+  // so without this `close()` blocks until the OS times out the
+  // connection — which is what failed CI on Node 22.
+  for (const socket of sockets) socket.destroy()
+  sockets.clear()
   await new Promise<void>((resolve) => server.close(() => resolve()))
 })
 
