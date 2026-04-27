@@ -62,6 +62,27 @@ const DEFAULT_TIMEOUT = 10_000
 // to RequestInit and onto MisinaResolvedOptions.
 const RUNTIME_KEYS = ["cf", "tls", "unix", "proxy", "verbose", "client"] as const
 
+/**
+ * Create a Misina HTTP client. Plugins listed in `options.use` are applied
+ * left-to-right (first innermost, last outermost) and their typed surfaces
+ * are intersected onto the returned client via `ApplyPlugins`.
+ *
+ * @example
+ * ```ts
+ * import { createMisina } from "misina"
+ * import { bearer } from "misina/auth"
+ * import { breaker } from "misina/breaker"
+ *
+ * const api = createMisina({
+ *   baseURL: "https://api.example.com",
+ *   retry: 3,
+ *   use: [bearer(() => store.token), breaker({ failureThreshold: 5 })],
+ * })
+ *
+ * api.breaker.state() // typed via the breaker plugin
+ * const { data } = await api.get<{ id: string }>("/users/42")
+ * ```
+ */
 export function createMisina<const TPlugins extends readonly MisinaPlugin<any>[] = []>(
   options: MisinaOptions & { use?: TPlugins } = {} as MisinaOptions & { use?: TPlugins },
 ): ApplyPlugins<TPlugins> {

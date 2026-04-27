@@ -576,6 +576,12 @@ export interface MisinaResponsePromise<T, E = unknown> extends Promise<MisinaRes
   ) => MisinaResponsePromise<T, E> & Promise<MisinaResponse<T> | U>
 }
 
+/**
+ * The Misina HTTP client surface — `request` plus the seven canonical HTTP
+ * verbs, a discriminated `safe` companion, and `extend` for child instances
+ * with merged defaults. Returned by `createMisina(...)`; intersected with
+ * any plugin's `TExt` (e.g. `breaker` adds `.breaker: BreakerHandle`).
+ */
 export interface Misina {
   /**
    * Create a new Misina instance with deep-merged defaults. Hooks arrays

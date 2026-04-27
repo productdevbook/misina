@@ -1,5 +1,24 @@
 import { MisinaError } from "./base.ts"
 
+/**
+ * Thrown when the request fails before a usable response is produced —
+ * DNS lookup failure, TCP refuse, TLS handshake error, or a stream cut
+ * mid-body after headers arrived. The original cause (e.g. `TypeError:
+ * fetch failed`) is preserved on `.cause`; `.response` is populated only
+ * for the mid-stream case.
+ *
+ * @example
+ * ```ts
+ * import { isNetworkError } from "misina"
+ *
+ * try { await api.get("/users") } catch (err) {
+ *   if (isNetworkError(err)) {
+ *     console.warn("upstream unreachable:", err.message)
+ *     showOfflineBanner()
+ *   } else throw err
+ * }
+ * ```
+ */
 export class NetworkError extends MisinaError {
   override readonly name = "NetworkError"
   /**
