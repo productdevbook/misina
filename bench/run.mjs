@@ -1,5 +1,10 @@
 // Benchmark suite — measures misina against ofetch / ky / axios /
 // native fetch on a local Node HTTP server. Run via `pnpm bench`.
+//
+// Default: human-readable terminal output.
+// Pass `--json` (or set BENCH_JSON=1) to emit machine-readable JSON
+// instead — used by the CI regression workflow + bench/compare.mjs.
+//
 // Reports throughput per suite; exits 0 on success.
 
 import { bench, group, run } from "mitata"
@@ -143,6 +148,14 @@ group("createMisina cold start", () => {
   })
 })
 
-await run({ percentiles: false })
+const json = process.argv.includes("--json") || process.env.BENCH_JSON === "1"
+// In JSON mode mitata writes the dump to stdout itself (its `print`
+// callback is `process.stdout.write` by default). We just have to ask
+// it to drop the heavy `debug` and `samples` fields — without that the
+// payload is ~35 MB per run because every tick is recorded.
+await run({
+  percentiles: false,
+  format: json ? { json: { debug: false, samples: false } } : undefined,
+})
 
 await server.close()

@@ -1,0 +1,126 @@
+name: Bench
+
+# Runs the local-server benchmark suite on PRs against main, comparing
+# head against base and posting a markdown delta as a PR comment.
+# Informational only — never gates a merge. CI runner heat alone moves
+# numbers ±2-3%, so the comment flags >5% misina regressions to look at,
+# not to enforce.
+
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out PR head
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: head
+
+      - name: Check out base (main)
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+
+      - run: corepack enable
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: head/pnpm-lock.yaml
+
+      - name: Install + build (base)
+        working-directory: base
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Stage head's bench scripts into base
+        # The first PR landing this workflow sees a base that doesn't
+        # have bench/{run.mjs --json,compare.mjs} yet. Re-use the head's
+        # scripts against the base's freshly-built dist/ so both sides
+        # are measured with the same harness.
+        run: |
+          cp head/bench/run.mjs base/bench/run.mjs
+          cp head/bench/compare.mjs base/bench/compare.mjs
+
+      - name: Run bench (base)
+        id: bench_base
+        working-directory: base
+        # If base fails (e.g. the PR introduces a breaking API change
+        # that the head bench script can't run against the old dist),
+        # don't gate the workflow — fall through and post head-only.
+        continue-on-error: true
+        run: node bench/run.mjs --json > ../base.json
+
+      - name: Install + build (head)
+        working-directory: head
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Run bench (head)
+        working-directory: head
+        run: node bench/run.mjs --json > ../head.json
+
+      - name: Generate diff
+        working-directory: head
+        run: node bench/compare.mjs ../base.json ../head.json > ../comment.md
+
+      - name: Show diff in job log
+        run: cat comment.md
+
+      - name: Upload bench artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results
+          path: |
+            base.json
+            head.json
+            comment.md
+          retention-days: 14
+
+      - name: Post / update PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("node:fs")
+            const body = fs.readFileSync("comment.md", "utf8")
+            const marker = "<!-- misina-bench -->"
+            const tagged = `${marker}\n${body}`
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            })
+            const existing = comments.find((c) => c.body?.startsWith(marker))
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: tagged,
+              })
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: tagged,
+              })
+            }
