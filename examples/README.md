@@ -1,7 +1,29 @@
 # misina examples
 
-Hand-runnable scripts that exercise misina's main features. Run with `tsx`
-or `bun` from the repo root:
+Two flavors of example here:
+
+1. **Hand-runnable feature snippets** (this directory) — small `.ts`
+   files demonstrating one feature at a time. Run with `tsx` from the
+   repo root.
+2. **Full framework integrations** — each its own package, with
+   `package.json` + README + runnable dev server. They consume `misina`
+   from npm rather than the local source tree, so the same snippets work
+   if you copy a folder out of the repo.
+
+| folder                                | shape                                   |
+| ------------------------------------- | --------------------------------------- |
+| [`tanstack-query/`](./tanstack-query) | React + TanStack Query (client-side)    |
+| [`react-router/`](./react-router)     | React Router v7 SSR (loaders + actions) |
+| [`sveltekit/`](./sveltekit)           | SvelteKit (`load` + form actions)       |
+| [`hono-server/`](./hono-server)       | Hono BFF (server-as-client outbound)    |
+
+Each framework folder is independent — `cd` into one, `pnpm install`, `pnpm dev`.
+
+---
+
+## Feature snippets
+
+Run with `tsx` or `bun` from the repo root:
 
 ```sh
 pnpm dlx tsx examples/01-basic.ts

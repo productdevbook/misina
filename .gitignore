@@ -4,3 +4,10 @@ dist
 .DS_Store
 .env
 coverage
+
+# Framework example build/cache artifacts
+examples/*/build
+examples/*/.svelte-kit
+examples/*/.react-router
+examples/*/.vite
+examples/*/pnpm-lock.yaml

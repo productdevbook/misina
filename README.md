@@ -1389,6 +1389,10 @@ content-type header internalized at the per-call layer.
 Misina composes with the modern web framework stack — every recipe
 below is end-to-end (no extra glue beyond what's shown).
 
+> Looking for full runnable apps? See [`examples/`](./examples) — each
+> framework has its own package with a working dev server (TanStack
+> Query, React Router v7, SvelteKit, Hono).
+
 ### TanStack Query
 
 ```ts

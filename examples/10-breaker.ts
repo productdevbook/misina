@@ -12,7 +12,7 @@
  * Run: pnpm dlx tsx examples/10-breaker.ts
  */
 import { createMisina } from "../src/index.ts"
-import { CircuitOpenError, withCircuitBreaker } from "../src/breaker/index.ts"
+import { breaker, CircuitOpenError } from "../src/breaker/index.ts"
 
 // Pretend a service that's down. Local driver so the example is offline-safe.
 const driver = {
@@ -20,9 +20,10 @@ const driver = {
   request: async () => new Response(null, { status: 503 }),
 }
 
-const api = withCircuitBreaker(createMisina({ driver, retry: 0 }), {
-  failureThreshold: 3,
-  halfOpenAfter: 200,
+const api = createMisina({
+  driver,
+  retry: 0,
+  use: [breaker({ failureThreshold: 3, halfOpenAfter: 200 })],
 })
 
 console.log("state:", api.breaker.state())
