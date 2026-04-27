@@ -1379,7 +1379,7 @@ methods), use the plugin `extend` slot — see [Writing your own plugin](#writin
 
 ### Real-world example
 
-[`@productdevbook/silgi`](https://github.com/productdevbook/silgi) uses
+[`silgi`](https://github.com/productdevbook/silgi) uses
 this pattern: its misina link accepts `misina: Misina` and adds path
 encoding + protocol negotiation on top, with `responseType` and the
 content-type header internalized at the per-call layer.
