@@ -1,3 +1,25 @@
+/**
+ * Root error class for every misina-thrown failure (`HTTPError`,
+ * `NetworkError`, `TimeoutError`, `ResponseTooLargeError`, `CircuitOpenError`,
+ * `DigestMismatchError`, `SchemaValidationError`, `GraphqlAggregateError`,
+ * `PollExhaustedError`). Use `instanceof MisinaError` to discriminate
+ * misina failures from arbitrary thrown values, and the more specific
+ * subclasses to discriminate by failure mode.
+ *
+ * @example
+ * ```ts
+ * import { MisinaError, isHTTPError, isTimeoutError } from "misina"
+ *
+ * try {
+ *   await api.get("/users/42")
+ * } catch (err) {
+ *   if (isHTTPError(err)) console.warn("HTTP", err.status)
+ *   else if (isTimeoutError(err)) console.warn("slow upstream")
+ *   else if (err instanceof MisinaError) console.warn("misina:", err.message)
+ *   else throw err
+ * }
+ * ```
+ */
 export class MisinaError extends Error {
   override readonly name: string = "MisinaError"
 

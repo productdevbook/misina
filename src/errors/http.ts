@@ -23,6 +23,26 @@ export interface ProblemDetails {
   [key: string]: unknown
 }
 
+/**
+ * Thrown when the server responds with a non-2xx status and `throwHttpErrors`
+ * is true (the default). Carries the parsed body as `data`, the original
+ * `Request` and `Response`, and surfaces RFC 9457 `problem+json` details on
+ * `.problem` when applicable.
+ *
+ * @example
+ * ```ts
+ * import { HTTPError, isHTTPError } from "misina"
+ *
+ * try {
+ *   const { data } = await api.post<User>("/users", { name: "Alice" })
+ * } catch (err) {
+ *   if (isHTTPError<{ message: string }>(err)) {
+ *     // err.status, err.data.message, err.response.headers all typed
+ *     showToast(err.problem?.title ?? err.data.message)
+ *   } else throw err
+ * }
+ * ```
+ */
 export class HTTPError<T = unknown> extends MisinaError {
   override readonly name = "HTTPError"
   readonly status: number

@@ -58,6 +58,7 @@
   - [misina/beacon](#misinabeacon)
   - [misina/graphql](#misinagraphql)
   - [misina/hedge](#misinahedge)
+- [Building on misina](#building-on-misina)
 - [Recipes](#recipes)
 - [Benchmarks](#benchmarks)
 - [Idempotency-Key](#idempotency-key)
@@ -1294,6 +1295,94 @@ for (const t of r.serverTimings) {
 import { parseServerTiming } from "misina"
 const entries = parseServerTiming(headers.get("server-timing"))
 ```
+
+## Building on misina
+
+Library and adapter authors integrating misina as a transport (silgi-style
+RPC links, GraphQL clients, OpenAPI codegen runtimes, …) usually face a
+single shape question: **flat options re-export, or instance pass-through?**
+
+The recommended pattern is **instance-only**:
+
+```ts
+// adapter API
+export interface CreateLinkOptions {
+  url: string
+  misina: Misina
+  // …adapter-specific knobs only (path encoding, protocol negotiation, …)
+}
+
+export function createLink(opts: CreateLinkOptions) {
+  /* … */
+}
+```
+
+```ts
+// user side
+import { createMisina } from "misina"
+import { bearer } from "misina/auth"
+import { cache } from "misina/cache"
+import { createLink } from "your-adapter"
+
+const link = createLink({
+  url: "https://api.example.com",
+  misina: createMisina({
+    retry: 3,
+    use: [bearer(() => store.token), cache({ ttl: 60_000 })],
+  }),
+})
+```
+
+### Why instance-only
+
+- **No drift.** A flat-options adapter has to track every misina release
+  and add `bodyTimeout`, `decompress`, `compressRequestBody`, `redirectStripHeaders`,
+  … by hand. Instance pass-through forwards the entire option surface for free.
+- **Plugins click in.** `use: [...]` lives on `createMisina`, not on the
+  adapter. Users compose `bearer()`, `cache()`, `breaker()`, custom plugins
+  the same way they would in any misina-using project.
+- **No documentation duplication.** misina docs already cover every option.
+  Your adapter only documents adapter-specific concerns.
+- **Smaller adapter surface.** Sub-100-line wrappers stay sub-100-line.
+
+The single "downside" — one extra `createMisina(...)` call for trivial
+cases — is actually a feature: it makes the transport explicit at the call
+site and signals the dispatch layer to readers.
+
+### Adapter-owned options (the one constraint)
+
+Some misina options are part of the adapter's contract, not the user's
+(e.g. `responseType: 'stream'` for SSE branching, content-type-driven
+response decoding, idempotency policy tied to the adapter's protocol).
+Apply these at the per-call `init` level so they always win, even if the
+user supplied a default via `createMisina`:
+
+```ts
+// inside the adapter — adapter wins over user createMisina defaults
+const res = await opts.misina.request(url, {
+  ...userInit,
+  responseType: "stream", // adapter contract
+  headers: { ...userInit.headers, "content-type": "application/json" },
+})
+```
+
+### Layering a typed surface on top of misina
+
+If the adapter returns its own client shape (not a `Misina`), the
+plugin system isn't the right tool — return a wrapper directly. This is
+how `createGraphqlClient(misina, opts)` is structured (see `misina/graphql`).
+GraphQL doesn't fit `MisinaPlugin` because the public surface is
+`{ query, mutate }`, not a misina-shaped client.
+
+If the adapter _does_ return a misina-shaped client (just with extra
+methods), use the plugin `extend` slot — see [Writing your own plugin](#writing-your-own-plugin).
+
+### Real-world example
+
+[`@productdevbook/silgi`](https://github.com/productdevbook/silgi) uses
+this pattern: its misina link accepts `misina: Misina` and adds path
+encoding + protocol negotiation on top, with `responseType` and the
+content-type header internalized at the per-call layer.
 
 ## Recipes
 
