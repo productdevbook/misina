@@ -461,6 +461,11 @@ export interface MisinaResolvedOptions extends MisinaRuntimeOptions {
   stringifyJson: (value: unknown) => string
 }
 
+/**
+ * Resolved response surface returned by `await misina.get(...)` and friends.
+ * Wraps the raw `Response` (`.raw`) with a parsed body (`.data`), parsed
+ * headers, lifecycle timings, and a server-issued `requestId` when present.
+ */
 export interface MisinaResponse<T = unknown> {
   data: T
   status: number
