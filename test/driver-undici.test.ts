@@ -285,9 +285,9 @@ describe("undiciDriver", () => {
         fetch: stub as never,
       }),
       retry: 0,
-      // Disable misina's own redirect interception so the driver sees
-      // the original `redirect` field.
-      followRedirects: false,
+      // Use `redirect: "follow"` so misina hands the original
+      // `redirect` field straight to undici instead of intercepting it.
+      redirect: "follow",
     })
     await m.get(`${baseUrl}/whatever`)
     // `redirect` should be one of the standard fetch values; just
