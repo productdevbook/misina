@@ -146,6 +146,24 @@ describe("createMisinaTyped — .safe namespace", () => {
       expectTypeOf(result.data).toEqualTypeOf<{ ok: boolean }>()
     }
   })
+
+  it("safe.get surfaces network errors as ok=false with status 0 instead of throwing", async () => {
+    const driver = {
+      name: "boom",
+      request: async (): Promise<Response> => {
+        throw Object.assign(new TypeError("fetch failed"), { name: "TypeError" })
+      },
+    }
+    const api = createMisinaTyped<Api>({ driver, retry: 0, baseURL: "https://api.test" })
+
+    const result = await api.safe.get("/users/:id", { params: { id: "x" } })
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error.status).toBe(0)
+      expect(result.response).toBeUndefined()
+    }
+  })
 })
 
 describe("ResponsesOf / SuccessBodyOf — type-only narrowing", () => {
