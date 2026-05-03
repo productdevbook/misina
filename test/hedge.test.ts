@@ -162,13 +162,11 @@ describe("hedge — race across endpoints", () => {
     expect(seen).toEqual(["https://a.example.com/x"])
   })
 
-  it("external signal aborts the delay timer between firings", async () => {
-    // Suppress the in-flight primary's rejection to avoid an unhandled
-    // rejection warning. The primary's misina call rejects when the external
-    // signal aborts (composed via AbortSignal.any), but if the launch loop's
-    // await throws first, the winners[] promise for the primary is never
-    // subscribed by Promise.any. We attach a global handler scoped to this
-    // test to swallow the dangling rejection.
+  it("external signal aborts the delay timer between firings (no dangling rejection)", async () => {
+    // Regression: previously the in-flight primary's rejection was unhandled
+    // because `launch`'s timer-await rejected before `Promise.any(winners)`
+    // subscribed. The fix attaches a no-op `.catch` to each dispatched promise
+    // at creation time. This test asserts no unhandledRejection fires.
     const dangling: unknown[] = []
     const onUnhandled = (e: PromiseRejectionEvent | Error): void => {
       const reason =
@@ -203,8 +201,9 @@ describe("hedge — race across endpoints", () => {
       await expect(p).rejects.toThrow(/external-abort/)
       // Backup never fired because the wait was aborted.
       expect(seen).toEqual(["https://primary.example.com/x"])
-      // Yield a microtask so the dangling rejection has a chance to surface.
-      await new Promise((r) => setTimeout(r, 5))
+      // Yield enough turns for any dangling rejection to surface.
+      await new Promise((r) => setTimeout(r, 20))
+      expect(dangling).toEqual([])
     } finally {
       process.off("unhandledRejection", onUnhandled as never)
     }

@@ -83,6 +83,11 @@ export async function hedge<T = unknown>(
         errors[i] = err
         throw err
       })
+      // Attach a no-op handler so an in-flight rejection surfacing before
+      // `Promise.any(winners)` subscribes (e.g. external signal aborts during
+      // the delayMs wait) doesn't trigger Node's unhandledRejection. The
+      // original `p` still rejects normally for `Promise.any` downstream.
+      p.catch(() => {})
       winners.push(p)
       if (i < endpoints.length - 1 && options.delayMs && options.delayMs > 0) {
         await new Promise<void>((resolve, reject) => {
