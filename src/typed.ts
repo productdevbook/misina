@@ -180,6 +180,22 @@ export interface TypedMisina<E extends EndpointsMap> {
   ) => ResponsePromise<EndpointsOfMethod<E, "DELETE">[P]>
 }
 
+/**
+ * Build a typed Misina client around an endpoint map. The returned client
+ * type-checks URL/method/params/query/body/response per declared route, and
+ * exposes `.safe.*` for discriminated `{ ok, data, error }` results.
+ *
+ * @example
+ * ```ts
+ * type Api = {
+ *   "GET /users/:id": { params: { id: string }; response: User }
+ *   "POST /users":    { body: NewUser; response: User }
+ * }
+ *
+ * const api = createMisinaTyped<Api>({ baseURL: "https://api.example.com" })
+ * const user = await api.get("/users/:id", { params: { id: "42" } })
+ * ```
+ */
 export function createMisinaTyped<E extends EndpointsMap>(
   defaults: MisinaOptions = {},
 ): TypedMisina<E> {

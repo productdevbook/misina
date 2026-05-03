@@ -31,14 +31,14 @@ export interface ProblemDetails {
  *
  * @example
  * ```ts
- * import { HTTPError, isHTTPError } from "misina"
+ * import { HTTPError } from "misina"
  *
  * try {
  *   const { data } = await api.post<User>("/users", { name: "Alice" })
  * } catch (err) {
- *   if (isHTTPError<{ message: string }>(err)) {
- *     // err.status, err.data.message, err.response.headers all typed
- *     showToast(err.problem?.title ?? err.data.message)
+ *   if (err instanceof HTTPError) {
+ *     // err.status, err.data, err.response.headers all typed
+ *     showToast(err.problem?.title ?? `HTTP ${err.status}`)
  *   } else throw err
  * }
  * ```
