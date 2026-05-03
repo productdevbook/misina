@@ -13,6 +13,7 @@ import { bearer } from "../src/auth/index.ts"
 import { breaker, type BreakerHandle } from "../src/breaker/index.ts"
 import {
   createMisina,
+  createMisinaTyped,
   type HTTPError,
   isHTTPError,
   isMisinaError,
@@ -23,7 +24,9 @@ import {
   type MisinaResponse,
   type MisinaResponsePromise,
   type MisinaResult,
+  type TypedMisina,
 } from "../src/index.ts"
+import type { TypedSafeResult } from "../src/typed.ts"
 import { tracing } from "../src/tracing/index.ts"
 
 describe("createMisina return type", () => {
@@ -141,6 +144,40 @@ describe("error narrowing — type guards", () => {
     if (isMisinaError(err)) {
       expectTypeOf(err.message).toEqualTypeOf<string>()
     }
+  })
+})
+
+describe("TypedMisina.safe — typed per-status-code result", () => {
+  type Api = {
+    "GET /users/:id": {
+      params: { id: string }
+      responses: {
+        200: { id: string; name: string }
+        404: { message: string }
+        429: { retryAfter: number }
+      }
+    }
+  }
+
+  it("TypedMisina<E>['safe']['get'] returns TypedSafeResult of the responses map", () => {
+    const api = createMisinaTyped<Api>()
+    expectTypeOf(api.safe).toBeObject()
+    expectTypeOf(api.safe.get).toBeFunction()
+    type Result = Awaited<ReturnType<typeof api.safe.get<"/users/:id">>>
+    expectTypeOf<Result>().toEqualTypeOf<
+      TypedSafeResult<{
+        200: { id: string; name: string }
+        404: { message: string }
+        429: { retryAfter: number }
+      }>
+    >()
+  })
+
+  it("TypedMisina exposes raw + safe alongside throwing methods", () => {
+    type T = TypedMisina<Api>
+    expectTypeOf<T["raw"]>().toEqualTypeOf<Misina>()
+    expectTypeOf<T["safe"]>().toBeObject()
+    expectTypeOf<T["get"]>().toBeFunction()
   })
 })
 
