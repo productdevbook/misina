@@ -245,13 +245,13 @@ export function createMisinaTyped<E extends EndpointsMap>(
       // response to discriminate on, so surface the raw `Error` and let
       // the caller branch on `kind === "network"`. Rethrowing would
       // defeat .safe's purpose; coercing into a fake `status: 0` would
-      // lie about the typed `ErrorCodes` union.
-      const err =
-        e instanceof Error ? e : new Error(typeof e === "string" ? e : "non-Error thrown in .safe")
+      // lie about the typed `ErrorCodes` union. Drivers and internal code
+      // throw `Error` subclasses per AGENTS.md ("drivers throw
+      // TypeError('fetch failed')"), so no defensive coercion here.
       return {
         ok: false,
         kind: "network",
-        error: err,
+        error: e as Error,
         response: undefined,
       }
     }
