@@ -22,7 +22,11 @@ type GitHubApi = {
   "GET /users/:login": { params: { login: string }; response: User }
   "GET /repos/:owner/:repo": {
     params: { owner: string; repo: string }
-    response: Repo
+    responses: {
+      200: Repo
+      404: { message: string; documentation_url?: string }
+      403: { message: string }
+    }
   }
 }
 
@@ -46,3 +50,14 @@ const { data: repo } = await gh.get("/repos/:owner/:repo", {
 
 console.log(`${repo.full_name} — ★ ${repo.stargazers_count} — ${repo.language ?? "no language"}`)
 console.log(repo.description ?? "(no description)")
+
+const result = await gh.safe.get("/repos/:owner/:repo", {
+  params: { owner: "octocat", repo: "definitely-not-a-real-repo" },
+})
+
+if (result.ok) {
+  console.log(`fetched ${result.data.full_name}`)
+} else {
+  if (result.error.status === 404) console.log(`not found: ${result.error.data.message}`)
+  if (result.error.status === 403) console.log(`forbidden: ${result.error.data.message}`)
+}
