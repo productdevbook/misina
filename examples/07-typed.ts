@@ -57,7 +57,10 @@ const result = await gh.safe.get("/repos/:owner/:repo", {
 
 if (result.ok) {
   console.log(`fetched ${result.data.full_name}`)
+} else if (result.kind === "network") {
+  console.log(`network error: ${result.error.message}`)
 } else {
+  // result.kind === "http" — error.status narrows to the ErrorCodes union.
   if (result.error.status === 404) console.log(`not found: ${result.error.data.message}`)
   if (result.error.status === 403) console.log(`forbidden: ${result.error.data.message}`)
 }

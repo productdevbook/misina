@@ -93,7 +93,9 @@ export type {
   SuccessCodes,
   TypedMisina,
   TypedSafeErr,
+  TypedSafeHttpErr,
   TypedSafeMisina,
+  TypedSafeNetworkErr,
   TypedSafeOk,
   TypedSafeResult,
 } from "./typed.ts"

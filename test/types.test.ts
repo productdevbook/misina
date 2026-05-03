@@ -26,7 +26,7 @@ import {
   type MisinaResult,
   type TypedMisina,
 } from "../src/index.ts"
-import type { TypedSafeResult } from "../src/typed.ts"
+import type { TypedSafeHttpErr, TypedSafeNetworkErr, TypedSafeResult } from "../src/typed.ts"
 import { tracing } from "../src/tracing/index.ts"
 
 describe("createMisina return type", () => {
@@ -171,6 +171,28 @@ describe("TypedMisina.safe — typed per-status-code result", () => {
         429: { retryAfter: number }
       }>
     >()
+  })
+
+  it("TypedSafeResult error branch splits on `kind` into http vs network", () => {
+    type R = {
+      200: { id: string; name: string }
+      404: { message: string }
+      429: { retryAfter: number }
+    }
+    type Result = TypedSafeResult<R>
+    type Err = Extract<Result, { ok: false }>
+    type Http = Extract<Err, { kind: "http" }>
+    type Net = Extract<Err, { kind: "network" }>
+
+    // The HTTP branch carries the per-status discriminated union and a
+    // real Response. The network branch carries a raw Error and no
+    // Response. status is never widened to `number`.
+    expectTypeOf<Http>().toEqualTypeOf<TypedSafeHttpErr<R>>()
+    expectTypeOf<Net>().toEqualTypeOf<TypedSafeNetworkErr>()
+    expectTypeOf<Http["error"]["status"]>().toEqualTypeOf<404 | 429>()
+    expectTypeOf<Http["response"]>().toEqualTypeOf<Response>()
+    expectTypeOf<Net["error"]>().toEqualTypeOf<Error>()
+    expectTypeOf<Net["response"]>().toEqualTypeOf<undefined>()
   })
 
   it("TypedMisina exposes raw + safe alongside throwing methods", () => {
