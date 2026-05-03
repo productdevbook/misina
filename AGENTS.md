@@ -42,10 +42,10 @@ src/
   errors/              — MisinaError / HTTPError / NetworkError / TimeoutError
   stream/              — SSE, NDJSON
   paginate/            — Link-header pagination
-  dedupe/              — withDedupe
-  cache/               — withCache + memoryStore
-  auth/                — withBearer / withBasic / withRefreshOn401 / withCsrf
-  cookie/              — MemoryCookieJar + withCookieJar
+  dedupe/              — dedupe plugin
+  cache/               — cache plugin + memoryStore
+  auth/                — bearer / basic / refreshOn401 / csrf plugins
+  cookie/              — MemoryCookieJar + cookieJar plugin
   test/                — createTestMisina (route matching, recorder)
 test/                  — vitest suites
 ```
@@ -82,8 +82,27 @@ Each subpath under `src/<name>/index.ts` should:
 
 - Be a single file (or a folder if it grows).
 - Be referenced in `package.json#exports` as `./<name>` → `./dist/<name>/index.{mjs,d.mts}`.
-- Take a `Misina` instance as its first arg (`withFoo(misina, opts)`) and return a `Misina`.
-- Use `misina.extend({ hooks: { ... } })` to plug in.
+- Export plugin **factories** that return a `MisinaPlugin` and are dropped into
+  `createMisina({ use: [...] })`. Plugins contribute `hooks` and optionally an
+  `extend` slot that augments the returned client's typed surface.
+
+  ```ts
+  import { createMisina } from "misina"
+  import { bearer } from "misina/auth"
+  import { cache, memoryStore } from "misina/cache"
+  import { cookieJar, MemoryCookieJar } from "misina/cookie"
+
+  const api = createMisina({
+    baseURL,
+    use: [
+      bearer(() => store.token),
+      cache({ store: memoryStore() }),
+      cookieJar(new MemoryCookieJar()),
+    ],
+  })
+  ```
+
+  Plugins are applied left-to-right: first is innermost, last is outermost.
 - Stay zero-deps. Peer deps (e.g. `unstorage`) are fine but document them.
 
 ## When in doubt
