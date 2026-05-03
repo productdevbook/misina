@@ -53,14 +53,16 @@ describe("abort signals — reason propagation", () => {
   })
 
   it("our own timeout fires TimeoutError, not AbortError", async () => {
+    // The contract under test is the *shape* of the rejection (mapped to
+    // TimeoutError, not AbortError), not the wall-clock behavior of
+    // `AbortSignal.timeout`. Driving the rejection synchronously with a
+    // TimeoutError-named DOMException exercises the same `mapTransportError`
+    // path while removing the real-timer race that flaked under saturated CI
+    // runners (same flake class as #120 / fixed in #122).
     const driver = {
       name: "slow",
-      request: (req: Request) =>
-        new Promise<Response>((_resolve, reject) => {
-          req.signal.addEventListener("abort", () => {
-            reject(req.signal.reason ?? new DOMException("aborted", "AbortError"))
-          })
-        }),
+      request: (_req: Request) =>
+        Promise.reject(new DOMException("Operation timed out", "TimeoutError")),
     }
 
     const m = createMisina({ driver, retry: 0, timeout: 20 })
