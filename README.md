@@ -1876,11 +1876,26 @@ const result = await api.safe.get("/users/:id", { params: { id: "42" } })
 if (result.ok) {
   result.data // User
   result.status // 200
+} else if (result.kind === "network") {
+  result.error // Error — fetch failed, timeout, abort
 } else {
+  // result.kind === "http"
   if (result.error.status === 404) result.error.data.message // string
   if (result.error.status === 429) result.error.data.retryAfter // number
 }
 ```
+
+The error envelope is a discriminated union on `kind`:
+
+- `kind: "http"` — the server responded with a non-2xx status declared in
+  `responses`. `error.status` narrows to the `ErrorCodes` union and
+  `error.data` narrows to the body shape for that status. `response` is a
+  real `Response`.
+- `kind: "network"` — the request never reached a server (TCP/TLS failure,
+  DNS, timeout, abort). `error` is the raw `Error` instance and
+  `response` is `undefined`. There is no HTTP status to discriminate on,
+  so the envelope is kept honest by exposing `Error` directly instead of
+  forging a synthetic `status: 0`.
 
 The throwing surface (`api.get(...)`) is unchanged: it returns the
 2xx body as before. `response: T` remains valid as shorthand for

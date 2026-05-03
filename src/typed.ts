@@ -64,14 +64,43 @@ export type TypedSafeOk<R> = {
   error?: undefined
 }
 
-export type TypedSafeErr<R> = {
+/**
+ * Per-status HTTP error branch. The server responded with a status the
+ * endpoint declared as an error — `error.status` narrows to the union of
+ * declared `ErrorCodes`, and `error.data` narrows to the body shape for
+ * that status.
+ */
+export type TypedSafeHttpErr<R> = {
   ok: false
+  kind: "http"
   data?: undefined
   error: [keyof R & ErrorCodes] extends [never]
     ? { status: number; data: unknown }
     : { [K in keyof R & ErrorCodes]: { status: K; data: R[K] } }[keyof R & ErrorCodes]
-  response: Response | undefined
+  response: Response
 }
+
+/**
+ * Network / timeout / abort branch. The request never received a server
+ * response — there is no HTTP status to discriminate on. `error` is the
+ * raw thrown `Error` (TypeError, TimeoutError, etc.); `response` is
+ * `undefined`.
+ */
+export type TypedSafeNetworkErr = {
+  ok: false
+  kind: "network"
+  data?: undefined
+  error: Error
+  response: undefined
+}
+
+/**
+ * Discriminated union covering both error branches. Use `result.kind` to
+ * separate the wire-level HTTP error (where `result.error.status` is a
+ * declared `ErrorCodes`) from the transport-level failure (where
+ * `result.error` is a raw `Error`).
+ */
+export type TypedSafeErr<R> = TypedSafeHttpErr<R> | TypedSafeNetworkErr
 
 export type TypedSafeResult<R> = TypedSafeOk<R> | TypedSafeErr<R>
 
@@ -182,9 +211,17 @@ export function createMisinaTyped<E extends EndpointsMap>(
     | { ok: true; data: unknown; status: number; response: Response; error?: undefined }
     | {
         ok: false
+        kind: "http"
         data?: undefined
         error: { status: number; data: unknown }
-        response: Response | undefined
+        response: Response
+      }
+    | {
+        ok: false
+        kind: "network"
+        data?: undefined
+        error: Error
+        response: undefined
       }
 
   async function safeCall(
@@ -199,17 +236,22 @@ export function createMisinaTyped<E extends EndpointsMap>(
       if (e instanceof HTTPError) {
         return {
           ok: false,
+          kind: "http",
           error: { status: e.status, data: e.data },
           response: e.response,
         }
       }
-      // Network / timeout / other non-HTTP errors don't fit the per-status
-      // shape — surface a synthetic error envelope so callers can still
-      // discriminate on `ok`. Rethrowing would defeat .safe's purpose.
-      const err = e as Error & { status?: number; data?: unknown }
+      // Network / timeout / abort / anything non-HTTP. There is no server
+      // response to discriminate on, so surface the raw `Error` and let
+      // the caller branch on `kind === "network"`. Rethrowing would
+      // defeat .safe's purpose; coercing into a fake `status: 0` would
+      // lie about the typed `ErrorCodes` union. Drivers and internal code
+      // throw `Error` subclasses per AGENTS.md ("drivers throw
+      // TypeError('fetch failed')"), so no defensive coercion here.
       return {
         ok: false,
-        error: { status: err.status ?? 0, data: err.data ?? err.message },
+        kind: "network",
+        error: e as Error,
         response: undefined,
       }
     }
