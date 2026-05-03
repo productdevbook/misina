@@ -17,16 +17,63 @@
  */
 
 import { createMisina } from "./misina.ts"
-import type { Misina, MisinaOptions, MisinaResponse, MisinaResponsePromise } from "./types.ts"
+import { HTTPError } from "./errors/http.ts"
+import type {
+  Misina,
+  MisinaOptions,
+  MisinaRequestInit,
+  MisinaResponse,
+  MisinaResponsePromise,
+} from "./types.ts"
 
 export interface EndpointDef {
   params?: Record<string, string | number>
   query?: Record<string, unknown>
   body?: unknown
   response?: unknown
+  responses?: Record<number, unknown>
 }
 
 export type EndpointsMap = Record<string, EndpointDef>
+
+/** 2xx codes recognized as success branches by `.safe.*` typed results. */
+export type SuccessCodes = 200 | 201 | 202 | 204
+/** 4xx/5xx codes recognized as error branches by `.safe.*` typed results. */
+export type ErrorCodes = 400 | 401 | 403 | 404 | 409 | 410 | 422 | 429 | 500 | 502 | 503
+
+/**
+ * Normalize an `EndpointDef`'s response declaration into a `Record<number, _>`
+ * map. `responses` wins; otherwise `response: T` becomes `{ 200: T }`; an
+ * endpoint with neither falls back to `Record<number, unknown>`.
+ */
+export type ResponsesOf<D> = D extends { responses: infer R }
+  ? R
+  : D extends { response: infer T }
+    ? { 200: T }
+    : Record<number, unknown>
+
+export type SuccessBodyOf<R> = [keyof R & SuccessCodes] extends [never]
+  ? unknown
+  : { [K in keyof R & SuccessCodes]: R[K] }[keyof R & SuccessCodes]
+
+export type TypedSafeOk<R> = {
+  ok: true
+  data: SuccessBodyOf<R>
+  status: keyof R & SuccessCodes
+  response: Response
+  error?: undefined
+}
+
+export type TypedSafeErr<R> = {
+  ok: false
+  data?: undefined
+  error: [keyof R & ErrorCodes] extends [never]
+    ? { status: number; data: unknown }
+    : { [K in keyof R & ErrorCodes]: { status: K; data: R[K] } }[keyof R & ErrorCodes]
+  response: Response | undefined
+}
+
+export type TypedSafeResult<R> = TypedSafeOk<R> | TypedSafeErr<R>
 
 type Method<S extends string> = S extends `${infer M} ${string}` ? M : never
 type Path<S extends string> = S extends `${string} ${infer P}` ? P : never
@@ -41,7 +88,7 @@ type CallInit<E> = Omit<MisinaOptions, "headers"> & {
   (E extends { query: infer Q } ? { query: Q } : { query?: Record<string, unknown> }) &
   (E extends { body: infer B } ? { body: B } : {})
 
-type Response<E> = MisinaResponsePromise<E extends { response: infer R } ? R : unknown>
+type ResponsePromise<E> = MisinaResponsePromise<SuccessBodyOf<ResponsesOf<E>>>
 
 // True when the endpoint has no required `params`, `query`, or `body`. In
 // that case the call's `init` argument should be optional so users can write
@@ -56,28 +103,52 @@ type HasRequiredFields<E> = E extends { params: unknown }
 
 type CallArgs<E> = HasRequiredFields<E> extends true ? [init: CallInit<E>] : [init?: CallInit<E>]
 
-export interface TypedMisina<E extends EndpointsMap> {
-  raw: Misina
+export interface TypedSafeMisina<E extends EndpointsMap> {
   get: <P extends keyof EndpointsOfMethod<E, "GET"> & string>(
     path: P,
     ...args: CallArgs<EndpointsOfMethod<E, "GET">[P]>
-  ) => Response<EndpointsOfMethod<E, "GET">[P]>
+  ) => Promise<TypedSafeResult<ResponsesOf<EndpointsOfMethod<E, "GET">[P]>>>
   post: <P extends keyof EndpointsOfMethod<E, "POST"> & string>(
     path: P,
     ...args: CallArgs<EndpointsOfMethod<E, "POST">[P]>
-  ) => Response<EndpointsOfMethod<E, "POST">[P]>
+  ) => Promise<TypedSafeResult<ResponsesOf<EndpointsOfMethod<E, "POST">[P]>>>
   put: <P extends keyof EndpointsOfMethod<E, "PUT"> & string>(
     path: P,
     ...args: CallArgs<EndpointsOfMethod<E, "PUT">[P]>
-  ) => Response<EndpointsOfMethod<E, "PUT">[P]>
+  ) => Promise<TypedSafeResult<ResponsesOf<EndpointsOfMethod<E, "PUT">[P]>>>
   patch: <P extends keyof EndpointsOfMethod<E, "PATCH"> & string>(
     path: P,
     ...args: CallArgs<EndpointsOfMethod<E, "PATCH">[P]>
-  ) => Response<EndpointsOfMethod<E, "PATCH">[P]>
+  ) => Promise<TypedSafeResult<ResponsesOf<EndpointsOfMethod<E, "PATCH">[P]>>>
   delete: <P extends keyof EndpointsOfMethod<E, "DELETE"> & string>(
     path: P,
     ...args: CallArgs<EndpointsOfMethod<E, "DELETE">[P]>
-  ) => Response<EndpointsOfMethod<E, "DELETE">[P]>
+  ) => Promise<TypedSafeResult<ResponsesOf<EndpointsOfMethod<E, "DELETE">[P]>>>
+}
+
+export interface TypedMisina<E extends EndpointsMap> {
+  raw: Misina
+  safe: TypedSafeMisina<E>
+  get: <P extends keyof EndpointsOfMethod<E, "GET"> & string>(
+    path: P,
+    ...args: CallArgs<EndpointsOfMethod<E, "GET">[P]>
+  ) => ResponsePromise<EndpointsOfMethod<E, "GET">[P]>
+  post: <P extends keyof EndpointsOfMethod<E, "POST"> & string>(
+    path: P,
+    ...args: CallArgs<EndpointsOfMethod<E, "POST">[P]>
+  ) => ResponsePromise<EndpointsOfMethod<E, "POST">[P]>
+  put: <P extends keyof EndpointsOfMethod<E, "PUT"> & string>(
+    path: P,
+    ...args: CallArgs<EndpointsOfMethod<E, "PUT">[P]>
+  ) => ResponsePromise<EndpointsOfMethod<E, "PUT">[P]>
+  patch: <P extends keyof EndpointsOfMethod<E, "PATCH"> & string>(
+    path: P,
+    ...args: CallArgs<EndpointsOfMethod<E, "PATCH">[P]>
+  ) => ResponsePromise<EndpointsOfMethod<E, "PATCH">[P]>
+  delete: <P extends keyof EndpointsOfMethod<E, "DELETE"> & string>(
+    path: P,
+    ...args: CallArgs<EndpointsOfMethod<E, "DELETE">[P]>
+  ) => ResponsePromise<EndpointsOfMethod<E, "DELETE">[P]>
 }
 
 export function createMisinaTyped<E extends EndpointsMap>(
@@ -85,23 +156,63 @@ export function createMisinaTyped<E extends EndpointsMap>(
 ): TypedMisina<E> {
   const raw = createMisina(defaults)
 
+  function resolveUrl(path: string, init: Record<string, unknown>): string {
+    const params = init.params as Record<string, string | number> | undefined
+    return params ? substitutePathParams(path, params) : path
+  }
+
+  function buildOptions(method: string, init: Record<string, unknown>): MisinaRequestInit {
+    const { params: _omit, body, ...rest } = init
+    void _omit
+    if (method === "GET" || method === "DELETE" || method === "HEAD" || method === "OPTIONS") {
+      return { ...(rest as MisinaRequestInit), method: method as "GET" }
+    }
+    return { ...(rest as MisinaRequestInit), method: method as "POST", body }
+  }
+
   function call<R>(
     method: string,
     path: string,
     init: Record<string, unknown> = {},
   ): MisinaResponsePromise<R> {
-    const params = init.params as Record<string, string | number> | undefined
-    const url = params ? substitutePathParams(path, params) : path
-    const { params: _omit, body, ...rest } = init
-    void _omit
-    if (method === "GET" || method === "DELETE" || method === "HEAD" || method === "OPTIONS") {
-      return raw.request<R>(url, { ...(rest as MisinaOptions), method: method as "GET" })
+    return raw.request<R>(resolveUrl(path, init), buildOptions(method, init))
+  }
+
+  type LooseSafeResult =
+    | { ok: true; data: unknown; status: number; response: Response; error?: undefined }
+    | {
+        ok: false
+        data?: undefined
+        error: { status: number; data: unknown }
+        response: Response | undefined
+      }
+
+  async function safeCall(
+    method: string,
+    path: string,
+    init: Record<string, unknown> = {},
+  ): Promise<LooseSafeResult> {
+    try {
+      const res = await raw.request<unknown>(resolveUrl(path, init), buildOptions(method, init))
+      return { ok: true, data: res.data, status: res.status, response: res.raw }
+    } catch (e) {
+      if (e instanceof HTTPError) {
+        return {
+          ok: false,
+          error: { status: e.status, data: e.data },
+          response: e.response,
+        }
+      }
+      // Network / timeout / other non-HTTP errors don't fit the per-status
+      // shape — surface a synthetic error envelope so callers can still
+      // discriminate on `ok`. Rethrowing would defeat .safe's purpose.
+      const err = e as Error & { status?: number; data?: unknown }
+      return {
+        ok: false,
+        error: { status: err.status ?? 0, data: err.data ?? err.message },
+        response: undefined,
+      }
     }
-    return raw.request<R>(url, {
-      ...(rest as MisinaOptions),
-      method: method as "POST",
-      body,
-    })
   }
 
   const make =
@@ -109,8 +220,22 @@ export function createMisinaTyped<E extends EndpointsMap>(
     (path: string, init?: Record<string, unknown>): MisinaResponsePromise<unknown> =>
       call(method, path, init)
 
+  const makeSafe =
+    (method: string) =>
+    (path: string, init?: Record<string, unknown>): Promise<LooseSafeResult> =>
+      safeCall(method, path, init)
+
+  const safe = {
+    get: makeSafe("GET"),
+    post: makeSafe("POST"),
+    put: makeSafe("PUT"),
+    patch: makeSafe("PATCH"),
+    delete: makeSafe("DELETE"),
+  } as unknown as TypedSafeMisina<E>
+
   return {
     raw,
+    safe,
     get: make("GET") as TypedMisina<E>["get"],
     post: make("POST") as TypedMisina<E>["post"],
     put: make("PUT") as TypedMisina<E>["put"],
