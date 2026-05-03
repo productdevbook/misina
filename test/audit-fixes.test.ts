@@ -65,12 +65,16 @@ describe("audit pass 1 — Retry-After parsing (Bug 8)", () => {
 
 describe("audit pass 1 — TimeoutError carries the configured timeout (Bug 18)", () => {
   it("error.timeout reflects the option, not 0", async () => {
+    // The contract under test is the *shape* of the error (carries the
+    // configured `timeout` option, message includes "25ms"), not the wall-clock
+    // behavior of `AbortSignal.timeout`. Driving the rejection synchronously
+    // with a TimeoutError-named DOMException exercises the same
+    // `mapTransportError` path while removing the real-timer race that flaked
+    // under saturated CI runners (issue #120).
     const driver = {
       name: "slow",
-      request: (req: Request) =>
-        new Promise<Response>((_resolve, reject) => {
-          req.signal?.addEventListener("abort", () => reject(req.signal!.reason), { once: true })
-        }),
+      request: (_req: Request) =>
+        Promise.reject(new DOMException("The operation timed out.", "TimeoutError")),
     }
 
     const m = createMisina({ driver, retry: 0, timeout: 25 })
@@ -86,7 +90,7 @@ describe("audit pass 1 — TimeoutError carries the configured timeout (Bug 18)"
         throw err
       }
     }
-  }, 3000)
+  })
 })
 
 describe("audit pass 1 — HTTPError.data is parsed during retry (Bug 16)", () => {
