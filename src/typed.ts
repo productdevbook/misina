@@ -180,6 +180,11 @@ export interface TypedMisina<E extends EndpointsMap> {
   ) => ResponsePromise<EndpointsOfMethod<E, "DELETE">[P]>
 }
 
+/**
+ * Build a typed Misina client. Adds `.safe.*` for discriminated
+ * `{ ok, data, error }` results on top of the route map declared by `E`.
+ * See the module-level block above for an end-to-end example.
+ */
 export function createMisinaTyped<E extends EndpointsMap>(
   defaults: MisinaOptions = {},
 ): TypedMisina<E> {
