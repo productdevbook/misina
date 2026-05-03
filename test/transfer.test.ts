@@ -301,7 +301,7 @@ describe("downloadResumable — fallback / probe paths", () => {
         if (req.method === "HEAD") {
           return new Response(null, {
             status: 200,
-            headers: { "accept-ranges": "bytes" }, // ranged true, but no content-length
+            headers: { "accept-ranges": "bytes" },
           })
         }
         return new Response(full as BodyInit, { status: 200 })
@@ -309,7 +309,6 @@ describe("downloadResumable — fallback / probe paths", () => {
     }
     const m = createMisina({ driver, retry: 0 })
     const result = await downloadResumable(m, "https://x.test/file")
-    // ranged is true but total undefined → falls back to streaming.
     expect(result.ranged).toBe(false)
     expect(result.size).toBe(total)
   })
@@ -321,7 +320,6 @@ describe("downloadResumable — fallback / probe paths", () => {
       name: "x",
       request: async (req: Request) => {
         if (req.method === "HEAD") throw new TypeError("HEAD blocked")
-        // Probe returns 200, not 206 — ranged stays false.
         return new Response(full as BodyInit, { status: 200 })
       },
     }
@@ -338,7 +336,6 @@ describe("downloadResumable — fallback / probe paths", () => {
         if (req.method === "HEAD") {
           return new Response(null, { status: 200 })
         }
-        // Body-less response → res.raw.body is null.
         return new Response(null, { status: 204 })
       },
     }
@@ -368,10 +365,7 @@ describe("downloadResumable — abort + retry exhaustion", () => {
         const m = /bytes=(\d+)-(\d+)/.exec(range)
         if (!m) return new Response(full as BodyInit, { status: 200 })
         chunksServed++
-        if (chunksServed === 1) {
-          // After the first chunk completes, abort so the next loop iteration trips the check.
-          controller.abort()
-        }
+        if (chunksServed === 1) controller.abort()
         const start = Number(m[1])
         const end = Number(m[2])
         return new Response(full.slice(start, end + 1) as BodyInit, { status: 206 })
@@ -383,11 +377,12 @@ describe("downloadResumable — abort + retry exhaustion", () => {
         chunkSize: 250,
         signal: controller.signal,
       }),
-    ).rejects.toThrow()
+    ).rejects.toThrow(/abort/i)
   })
 
   it("throws after exhausting maxRetries on a chunk", async () => {
     const total = 100
+    let chunkAttempts = 0
     const driver = {
       name: "x",
       request: async (req: Request) => {
@@ -397,14 +392,16 @@ describe("downloadResumable — abort + retry exhaustion", () => {
             headers: { "accept-ranges": "bytes", "content-length": String(total) },
           })
         }
-        // Every Range request fails.
+        chunkAttempts++
         throw new TypeError("net fail")
       },
     }
     const m = createMisina({ driver, retry: 0 })
     await expect(
       downloadResumable(m, "https://x.test/file", { chunkSize: 50, maxRetries: 1 }),
-    ).rejects.toThrow()
+    ).rejects.toThrow(/Network request.*failed/)
+    // maxRetries=1 → initial attempt + 1 retry = 2 calls before throw.
+    expect(chunkAttempts).toBe(2)
   })
 })
 
@@ -466,59 +463,59 @@ describe("uploadResumable — error / source / abort branches", () => {
     expect(firstPatch?.offset).toBe("0")
   })
 
-  it("uploads a Blob source by slicing it across PATCHes", async () => {
-    const total = 250
-    const blob = new Blob([makeBytes(total, 1) as BlobPart])
-    const stored: number[] = []
-    const driver = {
-      name: "x",
-      request: async (req: Request) => {
-        if (req.method === "POST") {
-          return new Response(null, {
-            status: 201,
-            headers: { location: "https://x.test/uploads/blob" },
-          })
-        }
-        if (req.method === "PATCH") {
-          const buf = new Uint8Array(await req.arrayBuffer())
-          stored.push(buf.byteLength)
-          return new Response(null, { status: 204 })
-        }
-        return new Response(null, { status: 405 })
+  describe.each([
+    {
+      kind: "Blob",
+      make: (n: number): Blob => new Blob([makeBytes(n, 1) as BlobPart]),
+      total: 250,
+      chunk: 100,
+      expected: [100, 100, 50],
+    },
+    {
+      kind: "ArrayBuffer",
+      make: (n: number): ArrayBuffer => {
+        const b = new ArrayBuffer(n)
+        new Uint8Array(b).fill(2)
+        return b
       },
-    }
-    const m = createMisina({ driver, retry: 0 })
-    const result = await uploadResumable(m, "https://x.test/uploads", blob, { chunkSize: 100 })
-    expect(result.uploaded).toBe(total)
-    expect(stored).toEqual([100, 100, 50])
-  })
-
-  it("uploads an ArrayBuffer source by slicing it across PATCHes", async () => {
-    const total = 180
-    const buffer = new ArrayBuffer(total)
-    new Uint8Array(buffer).fill(2)
-    const stored: number[] = []
-    const driver = {
-      name: "x",
-      request: async (req: Request) => {
-        if (req.method === "POST") {
-          return new Response(null, {
-            status: 201,
-            headers: { location: "https://x.test/uploads/buf" },
-          })
-        }
-        if (req.method === "PATCH") {
-          const buf = new Uint8Array(await req.arrayBuffer())
-          stored.push(buf.byteLength)
-          return new Response(null, { status: 204 })
-        }
-        return new Response(null, { status: 405 })
-      },
-    }
-    const m = createMisina({ driver, retry: 0 })
-    const result = await uploadResumable(m, "https://x.test/uploads", buffer, { chunkSize: 80 })
-    expect(result.uploaded).toBe(total)
-    expect(stored).toEqual([80, 80, 20])
+      total: 180,
+      chunk: 80,
+      expected: [80, 80, 20],
+    },
+    {
+      kind: "Uint8Array",
+      make: (n: number): Uint8Array => makeBytes(n, 3),
+      total: 120,
+      chunk: 50,
+      expected: [50, 50, 20],
+    },
+  ])("slices a $kind source across PATCHes", ({ make, total, chunk, expected }) => {
+    it("uploads in expected chunk sizes", async () => {
+      const stored: number[] = []
+      const driver = {
+        name: "x",
+        request: async (req: Request) => {
+          if (req.method === "POST") {
+            return new Response(null, {
+              status: 201,
+              headers: { location: "https://x.test/uploads/src" },
+            })
+          }
+          if (req.method === "PATCH") {
+            const buf = new Uint8Array(await req.arrayBuffer())
+            stored.push(buf.byteLength)
+            return new Response(null, { status: 204 })
+          }
+          return new Response(null, { status: 405 })
+        },
+      }
+      const m = createMisina({ driver, retry: 0 })
+      const result = await uploadResumable(m, "https://x.test/uploads", make(total), {
+        chunkSize: chunk,
+      })
+      expect(result.uploaded).toBe(total)
+      expect(stored).toEqual(expected)
+    })
   })
 
   it("resolves Location relative to the POST URL", async () => {
@@ -528,7 +525,6 @@ describe("uploadResumable — error / source / abort branches", () => {
       name: "x",
       request: async (req: Request) => {
         if (req.method === "POST") {
-          // Relative location header.
           return new Response(null, {
             status: 201,
             headers: { location: "/uploads/relative-id" },
@@ -573,12 +569,14 @@ describe("uploadResumable — error / source / abort branches", () => {
         chunkSize: 100,
         signal: controller.signal,
       }),
-    ).rejects.toThrow()
+    ).rejects.toThrow(/abort/i)
+    expect(patches).toBe(1)
   })
 
   it("throws after exhausting maxRetries on a PATCH", async () => {
     const total = 80
     const source = makeBytes(total, 7)
+    let patchAttempts = 0
     const driver = {
       name: "x",
       request: async (req: Request) => {
@@ -588,7 +586,10 @@ describe("uploadResumable — error / source / abort branches", () => {
             headers: { location: "https://x.test/uploads/dead" },
           })
         }
-        if (req.method === "PATCH") throw new TypeError("net fail")
+        if (req.method === "PATCH") {
+          patchAttempts++
+          throw new TypeError("net fail")
+        }
         return new Response(null, { status: 405 })
       },
     }
@@ -598,7 +599,8 @@ describe("uploadResumable — error / source / abort branches", () => {
         chunkSize: 40,
         maxRetries: 1,
       }),
-    ).rejects.toThrow()
+    ).rejects.toThrow(/Network request.*failed/)
+    expect(patchAttempts).toBe(2)
   })
 
   it("aborts the inter-retry delay rather than waiting it out", async () => {
@@ -617,7 +619,8 @@ describe("uploadResumable — error / source / abort branches", () => {
         }
         if (req.method === "PATCH") {
           patchCalls++
-          // First attempt fails → enters delay(); abort during the delay.
+          // Abort during the inter-retry delay() rather than synchronously,
+          // so we exercise the abort listener inside delay() (line 319).
           setTimeout(() => controller.abort(), 5)
           throw new TypeError("net fail")
         }
@@ -662,7 +665,8 @@ describe("uploadResumable — zero-byte source", () => {
     })
     expect(result.uploaded).toBe(0)
     expect(events).toEqual(["POST"])
-    // total=0 path: percent should be 0 (no division by zero).
     expect(progress[0]?.percent).toBe(0)
+    expect(progress[0]?.loaded).toBe(0)
+    expect(progress[0]?.total).toBe(0)
   })
 })
