@@ -1851,6 +1851,41 @@ const list = await api.get("/users", { query: { page: 2 } })
 
 Path params are substituted at runtime: `/users/:id` → `/users/42` (also `{id}` syntax).
 
+### Per-status-code `responses` map
+
+Beyond the `response: T` shorthand, each endpoint can declare a full
+per-status-code map. Throwing methods still resolve to the union of 2xx
+bodies; `.safe.*` methods discriminate every documented status:
+
+```ts
+type Api = {
+  "GET /users/:id": {
+    params: { id: string }
+    responses: {
+      200: User
+      404: { message: string }
+      429: { retryAfter: number }
+    }
+  }
+}
+
+const api = createMisinaTyped<Api>({ baseURL: "https://api.example.com" })
+
+const result = await api.safe.get("/users/:id", { params: { id: "42" } })
+
+if (result.ok) {
+  result.data // User
+  result.status // 200
+} else {
+  if (result.error.status === 404) result.error.data.message // string
+  if (result.error.status === 429) result.error.data.retryAfter // number
+}
+```
+
+The throwing surface (`api.get(...)`) is unchanged: it returns the
+2xx body as before. `response: T` remains valid as shorthand for
+`responses: { 200: T }`.
+
 For one-off URL building outside the typed client, use `path()`:
 
 ```ts

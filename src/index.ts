@@ -84,8 +84,16 @@ export type {
 export type {
   EndpointDef,
   EndpointsMap,
+  ErrorCodes,
+  ResponsesOf,
   StandardIssue,
   StandardPathItem,
   StandardSchemaV1,
+  SuccessBodyOf,
+  SuccessCodes,
   TypedMisina,
+  TypedSafeErr,
+  TypedSafeMisina,
+  TypedSafeOk,
+  TypedSafeResult,
 } from "./typed.ts"
