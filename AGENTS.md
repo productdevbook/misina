@@ -11,7 +11,7 @@ making changes.
 
 1. **Fetch-first.** Drivers consume a real `Request` and return a real `Response`.
 2. **ESM-only.** No CJS, no UMD. Match `unemail`/`sumak`.
-3. **Zero core deps.** Subpath helpers may declare peer dependencies.
+3. **Zero core deps.** Subpath plugins may declare peer dependencies.
 4. **Modern runtime baseline.** Node ≥ 22.11, Bun ≥ 1.2, Deno ≥ 2.0, Baseline 2024 browsers. Use native `AbortSignal.any`, `AbortSignal.timeout`, `Headers.getSetCookie()`, `Promise.withResolvers()` directly — no polyfills, no feature checks unless the API is V8-specific (e.g. `Error.captureStackTrace`).
 5. **Hooks > interceptors.** Per-phase typed context, array-merging, fatal error rule.
 6. **NetworkError vs HTTPError** are distinct classes.
@@ -42,10 +42,29 @@ src/
   errors/              — MisinaError / HTTPError / NetworkError / TimeoutError
   stream/              — SSE, NDJSON
   paginate/            — Link-header pagination
-  dedupe/              — withDedupe
-  cache/               — withCache + memoryStore
-  auth/                — withBearer / withBasic / withRefreshOn401 / withCsrf
-  cookie/              — MemoryCookieJar + withCookieJar
+  dedupe/              — dedupe plugin
+  cache/               — cache plugin + memoryStore
+  auth/                — bearer / basic / refreshOn401 / csrf plugins
+  auth/oauth           — OAuth 2.0 client-credentials / refresh-token plugin
+  auth/sigv4           — AWS SigV4 request signing plugin
+  auth/signed          — generic HMAC request signing
+  cookie/              — MemoryCookieJar + cookieJar plugin
+  breaker/             — circuit breaker plugin
+  ratelimit/           — client-side rate limit plugin
+  tracing/             — W3C traceparent / tracestate propagation
+  poll/                — polling helper
+  digest/              — Digest auth + Content-Digest helpers
+  transfer/            — chunked upload/download helpers
+  hedge/               — request hedging plugin
+  beacon/              — sendBeacon-style fire-and-forget
+  graphql/             — typed GraphQL client
+  openapi/             — OpenAPI typed client generator
+  otel/                — OpenTelemetry bridge
+  sentry/              — Sentry breadcrumb / error bridge
+  runtime/bun          — Bun-specific helpers
+  runtime/cloudflare   — Cloudflare Workers helpers
+  runtime/deno         — Deno helpers
+  runtime/next         — Next.js helpers
   test/                — createTestMisina (route matching, recorder)
 test/                  — vitest suites
 ```
@@ -82,13 +101,33 @@ Each subpath under `src/<name>/index.ts` should:
 
 - Be a single file (or a folder if it grows).
 - Be referenced in `package.json#exports` as `./<name>` → `./dist/<name>/index.{mjs,d.mts}`.
-- Take a `Misina` instance as its first arg (`withFoo(misina, opts)`) and return a `Misina`.
-- Use `misina.extend({ hooks: { ... } })` to plug in.
+- Export plugin **factories** that return a `MisinaPlugin` and are dropped into
+  `createMisina({ use: [...] })`. Plugins contribute `hooks` and optionally an
+  `extend` slot that augments the returned client's typed surface.
+
+  ```ts
+  import { createMisina } from "misina"
+  import { bearer } from "misina/auth"
+  import { cache, memoryStore } from "misina/cache"
+  import { cookieJar, MemoryCookieJar } from "misina/cookie"
+
+  const api = createMisina({
+    baseURL,
+    use: [
+      bearer(() => store.token),
+      cache({ store: memoryStore() }),
+      cookieJar(new MemoryCookieJar()),
+    ],
+  })
+  ```
+
+  Plugins are applied left-to-right: first is innermost, last is outermost.
+
 - Stay zero-deps. Peer deps (e.g. `unstorage`) are fine but document them.
 
 ## When in doubt
 
 - Look at `unemail`/`sumak` for house style.
 - Read the comments in `src/types.ts` — they encode design decisions.
-- The 34 GitHub issues on `productdevbook/misina` document why each
-  feature exists. Reference them in commits.
+- The GitHub issues on `productdevbook/misina` document why each feature
+  exists. Reference them in commits.
